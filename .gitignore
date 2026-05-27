@@ -1,0 +1,206 @@
+# =============================================================================
+# Proyecto Integrador EGI — Ecosistema de Inventario Seguro
+# Spring Boot · Docker · Kubernetes (Minikube) · SQL Server/MySQL · MongoDB · LDAP
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Secretos y configuración local
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+secrets/
+**/secrets.local.*
+**/*-secret.local.yaml
+**/*-secret.local.yml
+kubeconfig.local
+.kube/cache/
+
+# -----------------------------------------------------------------------------
+# Java / Spring Boot (Maven y Gradle)
+# -----------------------------------------------------------------------------
+target/
+!.mvn/wrapper/maven-wrapper.jar
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar.asc
+
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+out/
+bin/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+replay_pid*
+
+# Spring Boot / Spring
+.springBeans
+.factorypath
+.sts4-cache
+.apt_generated/
+.apt_generated_test/
+
+# -----------------------------------------------------------------------------
+# Frontend (inventario-web: Node, npm, yarn, pnpm, Vite, Angular, etc.)
+# -----------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-store/
+dist/
+dist-ssr/
+*.local
+.nuxt/
+.output/
+.next/
+.angular/cache/
+.svelte-kit/
+.parcel-cache/
+.turbo/
+coverage/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+
+# -----------------------------------------------------------------------------
+# Docker y contenedores
+# -----------------------------------------------------------------------------
+# Datos de volúmenes locales (no confundir con Dockerfiles ni compose de referencia)
+docker-data/
+volumes/
+*.log.docker
+
+# -----------------------------------------------------------------------------
+# Kubernetes / Minikube / Helm
+# -----------------------------------------------------------------------------
+# Estado local del clúster (los manifiestos SÍ deben versionarse)
+.minikube/
+*.kubeconfig
+kubeconfig
+.kube/config.backup
+
+# Helm: dependencias descargadas (Chart.yaml y values sí van al repo)
+charts/**/charts/
+*.tgz
+
+# Renderizados locales con secretos inyectados
+**/rendered/
+**/kustomize/**/secrets/
+.overlays/local/
+
+# -----------------------------------------------------------------------------
+# Bases de datos — volúmenes y dumps (scripts SQL/JSON de seed SÍ van al repo)
+# -----------------------------------------------------------------------------
+# SQL Server / MySQL
+**/mssql-data/
+**/mysql-data/
+**/sqlserver-data/
+*.mdf
+*.ldf
+*.ndf
+
+# MongoDB
+**/mongodb-data/
+**/mongo-data/
+dump/
+*.bson
+# Excepción: JSON de documentos de ejemplo del proyecto (carpetas tipo seed/data)
+!**/seed/**/*.json
+!**/data/**/*.json
+!**/fixtures/**/*.json
+!**/json/**/*.json
+
+# LDAP / Active Directory (simulación local)
+**/ldap-data/
+**/slapd.d/
+*.ldif.local
+
+# -----------------------------------------------------------------------------
+# IDEs y editores
+# -----------------------------------------------------------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.swp
+*.swo
+*~
+
+# -----------------------------------------------------------------------------
+# Sistema operativo
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# -----------------------------------------------------------------------------
+# Logs, temporales y artefactos de prueba
+# -----------------------------------------------------------------------------
+logs/
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+*.pid
+*.seed
+*.pid.lock
+tmp/
+temp/
+.cache/
+
+# Reportes de cobertura y análisis estático
+jacoco.exec
+jacoco-it.exec
+.sonar/
+.scannerwork/
+checkstyle-result.xml
+spotbugsXml.xml
+pmd.xml
+
+# -----------------------------------------------------------------------------
+# Documentación generada y presentaciones temporales
+# (la presentación final .pptx/.odp puede versionarse si el equipo lo decide)
+# -----------------------------------------------------------------------------
+~$*.pptx
+~$*.docx
+~$*.xlsx
+*.pptx.tmp
+
+# -----------------------------------------------------------------------------
+# Firewall / laboratorio (GUFW, pfSense: solo notas locales, no reglas del SO)
+# -----------------------------------------------------------------------------
+*.rules.local
+gufw-backup/
