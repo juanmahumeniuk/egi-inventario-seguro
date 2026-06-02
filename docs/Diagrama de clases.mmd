@@ -1,13 +1,13 @@
 classDiagram
     class Persona {
-        +BIGINT id PK «IDENTITY»
-        +NVARCHAR(100) nombre
-        +NVARCHAR(100) apellido
-        +NVARCHAR(20) categoria «CHECK»
+        +BIGINT id PK IDENTITY
+        +NVARCHAR100 nombre
+        +NVARCHAR100 apellido
+        +NVARCHAR20 categoria CHECK
     }
 
     class Maquina {
-        +BIGINT id PK «IDENTITY»
+        +BIGINT id PK IDENTITY
         +INT numero_mesa
         +DATE fecha_mantenimiento
         +Aula aula
@@ -21,8 +21,7 @@ classDiagram
 
     class Aula {
         <<enumeration>>
-        AULA_1
-        AULA_2
+        AULA_1y2
         LABORATORIO_SO
         LABORATORIO_REDES
         AULA_4
