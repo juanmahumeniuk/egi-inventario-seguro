@@ -1,0 +1,33 @@
+classDiagram
+    class Persona {
+        +BIGINT id PK «IDENTITY»
+        +NVARCHAR(100) nombre
+        +NVARCHAR(100) apellido
+        +NVARCHAR(20) categoria «CHECK»
+    }
+
+    class Maquina {
+        +BIGINT id PK «IDENTITY»
+        +INT numero_mesa
+        +DATE fecha_mantenimiento
+        +Aula aula
+    }
+
+    class PersonaMaquina {
+        +BIGINT persona_id PK FK
+        +BIGINT maquina_id PK FK
+        +DATE fecha_asignado
+    }
+
+    class Aula {
+        <<enumeration>>
+        AULA_1
+        AULA_2
+        LABORATORIO_SO
+        LABORATORIO_REDES
+        AULA_4
+    }
+
+    Persona "1" --> "0..*" PersonaMaquina : asignacion
+    Maquina "1" --> "1..*" PersonaMaquina : asignacion
+    Maquina --> Aula
