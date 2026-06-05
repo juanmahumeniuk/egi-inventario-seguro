@@ -21,11 +21,9 @@ Sistema centralizado para inventariar equipos de laboratorios de informática, c
 
 ## Descripción
 
-<!-- TODO: Resumen ejecutivo del proyecto (2–3 párrafos) -->
+Sistema web que permite inventariar y gestionar los equipos de los laboratorios del ITU. Combina datos de ubicación/asignación (SQL Server) con datos de hardware (MongoDB) en una API REST, desplegada sobre Kubernetes con autenticación LDAP y políticas de red Zero-Trust.
 
-> _Por completar: contexto del problema, alcance y objetivos principales._
-
-Consulta el documento completo del enunciado en [`Proyecto Integrador EGI.md`](./Proyecto%20Integrador%20EGI.md).
+Consulta el documento completo del enunciado en [`Proyecto Integrador EGI.md`](./Proyecto%20Integrador%20EGI.md) y el informe técnico en [`docs/Informe_EGI_Inventario.md`](./docs/Informe_EGI_Inventario.md).
 
 ---
 
@@ -77,15 +75,29 @@ flowchart TB
 
 ## Estructura del repositorio
 
-<!-- TODO: Actualizar cuando existan las carpetas -->
-
 ```
-EGI/
-├── docs/                 # Esquemas, diagramas, presentación
-├── inventario-web/       # Frontend
-├── k8s/                  # Manifiestos Kubernetes
-├── services/             # Microservicios Spring Boot
-├── database/             # Scripts SQL, JSON de seed MongoDB
+egi-inventario-seguro/
+├── app/
+│   └── inventario-web/           # Spring Boot (API REST + Frontend)
+│       ├── pom.xml
+│       └── src/
+│           ├── main/
+│           │   ├── java/com/itu/egi/inventarioseguro/
+│           │   │   ├── config/   # DataSourceConfig (JPA + MongoDB)
+│           │   │   ├── model/    # Entidades JPA, documento MongoDB, enums
+│           │   │   ├── repository/sql/    # Repos JPA
+│           │   │   ├── repository/mongo/  # Repos MongoDB
+│           │   │   ├── dto/      # DTOs de request y response
+│           │   │   ├── service/  # Lógica de negocio
+│           │   │   └── controller/ # Endpoints REST /api/*
+│           │   └── resources/
+│           │       ├── application.yml
+│           │       └── db/migration/  # Flyway V1–V4
+│           └── test/
+├── docs/                         # Informe, diagramas
+├── migraciones/
+│   ├── sql/                      # V1–V4 (referencia)
+│   └── mongodb/                  # Schema de colección
 └── README.md
 ```
 
@@ -93,34 +105,54 @@ EGI/
 
 ## Requisitos previos
 
-<!-- TODO: Versiones exactas -->
+- Java 17+
+- Maven 3.9+
+- Docker Desktop
+- Minikube (`minikube start --cni=calico`) y kubectl — para despliegue en clúster
+- IntelliJ IDEA (recomendado) u otro IDE compatible con Spring Boot
 
-- [ ] Java 17+
-- [ ] Maven o Gradle
-- [ ] Docker
-- [ ] Minikube (`minikube start --cni=calico`)
-- [ ] kubectl
+> **Nota**: el `docker-compose.dev.yml` levanta SQL Server en el puerto **1433** y MongoDB en el **27018** (no 27017, para evitar conflicto con instalaciones locales de MongoDB).
 
 ---
 
-## Inicio rápido
-
-<!-- TODO: Comandos reales cuando el ecosistema esté armado -->
+## Inicio rápido (desarrollo local)
 
 ```bash
 # 1. Clonar el repositorio
 git clone <url-del-repositorio>
-cd EGI
+cd egi-inventario-seguro
 
-# 2. Levantar el clúster local
-minikube start --cni=calico
+# 2. Levantar las bases de datos con Docker Compose
+docker compose -f docker-compose.dev.yml up -d
 
-# 3. Desplegar el ecosistema
-# kubectl apply -f k8s/
+# 3. Configurar variables de entorno en el IDE
+#    DB_PASSWORD=EGI_Password123!
+#    (DB_USER y MONGO_URI tienen valores por defecto en application.yml)
 
-# 4. Acceder a la aplicación
-# minikube service inventario-web
+# 4. Compilar y ejecutar el backend desde IntelliJ
+#    o desde terminal:
+cd app/inventario-web
+mvn spring-boot:run -Dspring-boot.run.jvmArguments="-DDB_PASSWORD=EGI_Password123!"
+
+# 5. La API queda disponible en http://localhost:8080/api
 ```
+
+### Endpoints disponibles
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/api/maquinas` | Listar todas las máquinas |
+| GET | `/api/maquinas/{id}` | Detalle unificado (SQL + MongoDB) |
+| POST | `/api/maquinas` | Crear máquina |
+| PUT | `/api/maquinas/{id}` | Actualizar máquina |
+| DELETE | `/api/maquinas/{id}` | Eliminar máquina |
+| GET | `/api/maquinas/{id}/personas` | Personas asignadas |
+| GET | `/api/personas` | Listar personas |
+| POST | `/api/personas` | Crear persona |
+| PUT | `/api/personas/{id}` | Actualizar persona |
+| DELETE | `/api/personas/{id}` | Eliminar persona |
+| POST | `/api/asignaciones` | Asignar máquina a persona |
+| DELETE | `/api/asignaciones/{personaId}/{maquinaId}` | Desasignar |
 
 ---
 
@@ -153,7 +185,8 @@ minikube start --cni=calico
 | Recurso | Descripción |
 |---------|-------------|
 | [`Proyecto Integrador EGI.md`](./Proyecto%20Integrador%20EGI.md) | Enunciado y requisitos del proyecto |
-| `docs/` | _Por crear: diagramas, flujos, defensa_ |
+| [`docs/Informe_EGI_Inventario.md`](./docs/Informe_EGI_Inventario.md) | Informe técnico completo: arquitectura, modelo de datos, backend, seguridad |
+| `docs/` | Diagramas de topología, clases y flujo de la aplicación |
 
 ---
 
