@@ -1,0 +1,6 @@
+{
+  "name": "Inventario ITU",
+  "description": "Sistema centralizado para inventariar las computadoras de los laboratorios de informática del Instituto Tecnológico Universitario.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
