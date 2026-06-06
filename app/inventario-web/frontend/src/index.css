@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-primary: #064E3B;
+  --color-brand-primary-light: #0d5c47;
+  --color-brand-primary-dark: #043e2e;
+  --color-brand-cta: #DC2626;
+  --color-brand-cta-hover: #b91c1c;
+  --color-brand-secondary: #10B981;
+
+  --color-itu-teal-50: #f0f7f7;
+  --color-itu-teal-100: #dcebeb;
+  --color-itu-teal-200: #b9d7d6;
+  --color-itu-teal-500: #0e8f8a;
+  --color-itu-teal-600: #064e3b; /* Replaced with brand primary */
+  --color-itu-teal-700: #043e2e; /* Replaced with brand primary dark */
+  --color-itu-teal-800: #032b20;
+  --color-itu-teal-900: #021a13;
+
+  --color-itu-red-500: #DC2626;  /* Replaced with brand cta */
+  --color-itu-red-600: #b91c1c;
+  --color-itu-red-700: #991b1b;
+
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+body {
+  background-color: #F3F4F6;
+  color: #1F2937;
+  font-family: var(--font-sans);
+}
+
+.status-badge {
+  font-size: 0.65rem;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.spec-label {
+  color: #6B7280;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+/* Custom scrollbars for a more refined look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

@@ -1,14 +1,17 @@
 package com.itu.egi.inventarioseguro;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 
-@SpringBootTest
-@ActiveProfiles("test")
+/**
+ * El contexto completo de Spring requiere Docker (SQL Server + MongoDB).
+ * Levantarlo con: docker compose -f docker-compose.dev.yml up -d
+ * Tests de integración real: MaquinaServiceTest y MaquinaControllerTest.
+ */
 class InventarioApplicationTests {
 
     @Test
-    void contextLoads() {
+    void placeholder() {
+        // Los tests funcionales están en MaquinaServiceTest y MaquinaControllerTest.
+        // Un test de contextLoads real requiere las bases de datos del docker-compose.
     }
 }
