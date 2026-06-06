@@ -141,42 +141,54 @@ MongoDB almacena los datos de **hardware interno** de cada equipo. Se utiliza un
 
 #### 4.2.1 Estructura del Documento (Schema)
 
+El documento almacena los datos de hardware con objetos anidados para `disco` y `perifericos`, reemplazando los campos planos de String de la versión anterior.
+
 ```mermaid
 graph LR
     DOC["Documento MongoDB\nColección: maquina"]
     DOC --> _id["_id: Long (= Maquina.id en SQL)"]
     DOC --> fabricante["fabricante: String"]
     DOC --> modelo["modelo: String"]
-    DOC --> tipo["tipo: String\n(DESKTOP | LAPTOP)"]
+    DOC --> tipo["tipo: String\n(desktop | laptop | all-in-one)"]
     DOC --> cpu["cpu: String"]
-    DOC --> ram["ram: String"]
-    DOC --> disco["disco: String"]
-    DOC --> os["os: String"]
-    DOC --> monitor["monitor: String (opcional)"]
-    DOC --> mouse["mouse: String (opcional)"]
-    DOC --> teclado["teclado: String (opcional)"]
+    DOC --> ramGb["ramGb: Integer (GB)"]
+    DOC --> sistemaOperativo["sistemaOperativo: String"]
+    DOC --> disco["disco: Disco"]
+    DOC --> perifericos["perifericos: Perifericos (opcional)"]
+
+    disco --> dt["tipo: String (SSD | HDD)"]
+    disco --> dc["capacidadGb: Integer (GB)"]
+
+    perifericos --> pm["monitor: String"]
+    perifericos --> pmo["mouse: String"]
+    perifericos --> pt["teclado: String"]
 ```
 
 #### 4.2.2 Ejemplo de Documento JSON
 
 ```json
 {
-  "_id": 4,
+  "_id": 10001,
   "fabricante": "Dell",
   "modelo": "OptiPlex 7090",
-  "tipo": "DESKTOP",
-  "cpu": "Intel Core i5-10500",
-  "ram": "16GB DDR4",
-  "disco": "SSD 512GB",
-  "os": "Windows 10 Pro",
-  "monitor": null,
-  "mouse": null,
-  "teclado": null,
+  "tipo": "desktop",
+  "cpu": "Intel Core i5-11500",
+  "ram_gb": 16,
+  "sistema_operativo": "Windows 11 Pro",
+  "disco": {
+    "tipo": "SSD",
+    "capacidad_gb": 512
+  },
+  "perifericos": {
+    "monitor": "Dell P2422H 24\"",
+    "mouse": "Dell MS116",
+    "teclado": "Dell KB216"
+  },
   "_class": "com.itu.egi.inventarioseguro.model.MaquinaHardware"
 }
 ```
 
-El campo `_id` del documento MongoDB es el mismo `Long` que el `id` de la tabla `Maquina` en SQL Server. Esto elimina la necesidad de un campo de referencia separado y permite que la aplicación recupere ambas fuentes de datos con una sola clave. El campo `_class` es agregado automáticamente por Spring Data MongoDB para la deserialización del tipo.
+El campo `_id` del documento MongoDB es el mismo `Long` que el `id` de la tabla `Maquina` en SQL Server. Esto elimina la necesidad de un campo de referencia separado y permite que la aplicación recupere ambas fuentes de datos con una sola clave. Los campos `disco` y `perifericos` son objetos embebidos (no colecciones separadas). El campo `_class` es agregado automáticamente por Spring Data MongoDB.
 
 ---
 
@@ -435,21 +447,74 @@ app/inventario-web/
 
 ### 12.4 Endpoints REST
 
+Todos los endpoints devuelven y aceptan JSON con naming en **snake_case** (configurable globalmente via Jackson `SNAKE_CASE`).
+
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/maquinas` | Lista todas las máquinas (datos SQL) |
-| GET | `/api/maquinas/{id}` | Detalle unificado: combina SQL Server + MongoDB |
-| POST | `/api/maquinas` | Crea máquina en SQL y su hardware en MongoDB |
-| PUT | `/api/maquinas/{id}` | Actualiza en ambas bases |
+| POST | `/api/auth/login` | Autenticación — devuelve `{username, token, role}` |
+| GET | `/api/maquinas` | Lista completa: SQL + MongoDB + asignaciones combinados |
+| GET | `/api/maquinas/{id}` | Detalle unificado por ID |
+| POST | `/api/maquinas` | Crea máquina en SQL y su hardware en MongoDB, con asignaciones |
+| PUT | `/api/maquinas/{id}` | Actualiza en ambas bases y reemplaza asignaciones |
 | DELETE | `/api/maquinas/{id}` | Elimina de ambas bases |
-| GET | `/api/maquinas/{id}/personas` | Personas asignadas a la máquina |
 | GET | `/api/personas` | Lista todas las personas |
 | GET | `/api/personas/{id}` | Detalle de persona |
 | POST | `/api/personas` | Crea persona |
 | PUT | `/api/personas/{id}` | Actualiza persona |
 | DELETE | `/api/personas/{id}` | Elimina persona |
-| POST | `/api/asignaciones` | Asigna máquina a persona |
+| POST | `/api/asignaciones` | Asigna máquina a persona (standalone) |
 | DELETE | `/api/asignaciones/{personaId}/{maquinaId}` | Desasigna |
+
+#### Estructura de request/response de `/api/maquinas`
+
+**GET /api/maquinas** — respuesta (array de):
+```json
+{
+  "id": 1,
+  "numero_mesa": 5,
+  "fecha_mantenimiento": "2026-12-01",
+  "aula": "LABORATORIO_SO",
+  "especificaciones": {
+    "maquina_id": 1,
+    "fabricante": "Dell",
+    "modelo": "OptiPlex 7090",
+    "tipo": "desktop",
+    "cpu": "Intel Core i5-11500",
+    "ram_gb": 16,
+    "disco": { "tipo": "SSD", "capacidad_gb": 512 },
+    "sistema_operativo": "Windows 11 Pro",
+    "perifericos": { "monitor": "Dell 24\"", "mouse": "Dell MS116", "teclado": "Dell KB216" }
+  },
+  "asignaciones": [
+    {
+      "persona": { "id": 1, "nombre": "Juan", "apellido": "Humeniuk", "categoria": "Docente" },
+      "fecha_asignado": "2026-06-06"
+    }
+  ]
+}
+```
+
+**POST /api/maquinas** — body esperado:
+```json
+{
+  "aula": "LABORATORIO_SO",
+  "numero_mesa": 5,
+  "fecha_mantenimiento": "2026-12-01",
+  "especificaciones": {
+    "fabricante": "Dell",
+    "modelo": "OptiPlex 7090",
+    "tipo": "desktop",
+    "cpu": "Intel Core i5-11500",
+    "ram_gb": 16,
+    "disco": { "tipo": "SSD", "capacidad_gb": 512 },
+    "sistema_operativo": "Windows 11 Pro",
+    "perifericos": { "monitor": "Dell 24\"", "mouse": "Dell MS116", "teclado": "Dell KB216" }
+  },
+  "asignaciones": [
+    { "personaId": 1, "fecha_asignado": "2026-06-06" }
+  ]
+}
+```
 
 ### 12.5 Gestión de migraciones (Flyway)
 
@@ -502,6 +567,160 @@ La aplicación se configura mediante variables de entorno para no hardcodear cre
 | `DB_USER` | `sa` | Usuario SQL Server |
 | `DB_PASSWORD` | `sa` | Contraseña SQL Server |
 | `MONGO_URI` | `mongodb://localhost:27018/inventario_egi` | URI de conexión MongoDB (el `docker-compose.dev.yml` expone MongoDB en el **puerto 27018** para evitar conflictos con instalaciones locales) |
+
+---
+
+## 13. Frontend — Aplicación React
+
+### 13.1 Tecnologías
+
+La interfaz web está implementada con **React 19 + TypeScript + Vite + Tailwind CSS**, ubicada en `app/inventario-web/frontend/`.
+
+| Tecnología | Versión | Rol |
+|---|---|---|
+| React + TypeScript | 19 / 5.8 | UI y tipado estático |
+| Vite | 6 | Build tool y dev server (puerto 3000) |
+| Tailwind CSS | 4 | Estilos utilitarios |
+| Lucide React | 0.546 | Iconografía |
+
+### 13.2 Arquitectura de servicios
+
+El frontend implementa una capa de servicios en `src/services/` que abstrae la comunicación con el backend:
+
+| Archivo | Responsabilidad |
+|---|---|
+| `api.ts` | Cliente base HTTP con inyección automática de JWT en el header `Authorization: Bearer <token>` |
+| `authService.ts` | Login contra `/api/auth/login`, persistencia del token en `localStorage` |
+| `maquinaService.ts` | CRUD completo contra `/api/maquinas` y `/api/personas` |
+
+### 13.3 Modo Mock vs. Real
+
+El frontend soporta dos modos controlados por variables de entorno en `.env`:
+
+```env
+# Modo real (conecta al backend Spring Boot)
+VITE_API_URL=http://localhost:8080/api
+VITE_USE_MOCK=false
+
+# Modo mock (datos en localStorage, sin backend)
+VITE_USE_MOCK=true
+```
+
+El modo mock simula con fidelidad el comportamiento del backend (transacciones SQL + MongoDB) usando `localStorage`, lo que permite desarrollar el frontend de forma independiente.
+
+### 13.4 Levantar el frontend
+
+```bash
+cd app/inventario-web/frontend
+npm install
+npm run dev        # http://localhost:3000
+```
+
+Credenciales por defecto para el login: `admin` / `admin123` (o cualquier usuario/contraseña mientras el LDAP real esté pendiente).
+
+---
+
+## 14. Integración Backend-Frontend
+
+### 14.1 CORS
+
+La clase `CorsConfig` (en `config/`) habilita CORS para que el frontend en `:3000` pueda comunicarse con el backend en `:8080`:
+
+```java
+registry.addMapping("/api/**")
+        .allowedOrigins("http://localhost:3000")
+        .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+        .allowedHeaders("*")
+        .allowCredentials(true);
+```
+
+### 14.2 Convención de naming JSON
+
+Jackson está configurado globalmente con la estrategia `SNAKE_CASE` en `application.yml`:
+
+```yaml
+spring:
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+```
+
+Esto convierte automáticamente los campos camelCase de Java (`numeroMesa`, `ramGb`, `sistemaOperativo`) a snake_case en el JSON (`numero_mesa`, `ram_gb`, `sistema_operativo`), alineándose con la convención del frontend.
+
+### 14.3 Autenticación (mock JWT)
+
+El endpoint `POST /api/auth/login` devuelve un token de sesión. La integración con el servidor LDAP real (OpenLDAP / Active Directory) está pendiente; por ahora, el endpoint acepta cualquier credencial y retorna un token aleatorio:
+
+```json
+{
+  "username": "admin",
+  "token": "mock-jwt-uuid-generado",
+  "role": "ADMIN"
+}
+```
+
+El rol se determina según el username: `admin` → `ADMIN`, cualquier otro → `TECNICO`.
+
+### 14.4 Validación del contrato de API
+
+La integración fue verificada con Playwright (Chromium headless):
+
+| Check | Resultado |
+|---|---|
+| Login con `admin/admin123` | ✅ `POST /api/auth/login → 200` |
+| Dashboard carga máquinas reales | ✅ `GET /api/maquinas → 200` |
+| Lista de personas para selector | ✅ `GET /api/personas → 200` |
+| Crear máquina desde formulario | ✅ `POST /api/maquinas → 201` |
+| Errores CORS en consola del navegador | ✅ 0 errores |
+| Errores de JavaScript en consola | ✅ 0 errores |
+
+---
+
+## 15. Tests
+
+### 15.1 Estrategia de testing
+
+Se implementaron **17 tests** divididos en tres niveles, sin requerir bases de datos externas:
+
+| Tipo | Clase | Tests | Herramienta |
+|---|---|---|---|
+| Unitario (service) | `MaquinaServiceTest` | 7 | JUnit 5 + Mockito |
+| Integración HTTP (controller) | `MaquinaControllerTest` | 6 | `@WebMvcTest` + MockMvc |
+| Integración HTTP (auth) | `AuthControllerTest` | 3 | `@WebMvcTest` + MockMvc |
+| Placeholder | `InventarioApplicationTests` | 1 | — |
+
+### 15.2 Casos cubiertos
+
+**MaquinaServiceTest** — lógica de negocio:
+- `findAll` devuelve lista con datos de SQL + MongoDB combinados
+- `findAll` con MongoDB vacío devuelve especificaciones en null sin crashear
+- `findById` happy path con datos completos
+- `findById` ID inexistente → 404
+- `create` persiste en SQL Server Y en MongoDB
+- `delete` elimina de ambas bases
+- `delete` ID inexistente → 404 sin tocar las bases
+
+**MaquinaControllerTest** — capa HTTP:
+- `GET /api/maquinas` → 200 con JSON en snake_case (`numero_mesa`, `ram_gb`, `sistema_operativo`, `capacidad_gb`)
+- `GET /api/maquinas/{id}` → 200 con estructura completa
+- `POST /api/maquinas` con body válido → 201
+- `POST /api/maquinas` sin `especificaciones` (@NotNull) → 400
+- `PUT /api/maquinas/{id}` → 200
+- `DELETE /api/maquinas/{id}` → 204
+
+**AuthControllerTest** — autenticación:
+- Usuario `admin` → role `ADMIN`
+- Cualquier otro usuario → role `TECNICO`
+- Body vacío → respuesta 200 con token
+
+### 15.3 Ejecutar los tests
+
+```bash
+cd app/inventario-web
+mvn test
+# BUILD SUCCESS — Tests run: 17, Failures: 0, Errors: 0, Skipped: 0
+```
+
+Los tests de controller (`@WebMvcTest`) y los unitarios (Mockito) no requieren Docker ni bases de datos.
 
 ---
 
