@@ -1,22 +1,19 @@
 package com.itu.egi.inventarioseguro.dto;
 
 import com.itu.egi.inventarioseguro.model.TipoEquipo;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
-public class HardwareRequest {
-
+public class EspecificacionesRequest {
     @NotBlank private String fabricante;
     @NotBlank private String modelo;
-    @NotBlank private String cpu;
-    @NotBlank private String ram;
-    @NotBlank private String disco;
     @NotNull  private TipoEquipo tipo;
-    @NotBlank private String os;
-
-    private String monitor;
-    private String mouse;
-    private String teclado;
+    @NotBlank private String cpu;
+    @NotNull  private Integer ramGb;
+    @Valid @NotNull private DiscoRequest disco;
+    @NotBlank private String sistemaOperativo;
+    private PerifericosRequest perifericos;
 }

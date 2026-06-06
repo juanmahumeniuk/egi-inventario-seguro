@@ -6,6 +6,8 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
 public class MaquinaRequest {
@@ -14,5 +16,8 @@ public class MaquinaRequest {
     @NotNull private Integer numeroMesa;
     private LocalDate fechaMantenimiento;
 
-    @Valid @NotNull private HardwareRequest hardware;
+    @Valid @NotNull private EspecificacionesRequest especificaciones;
+
+    @Valid
+    private List<AsignacionEnMaquinaRequest> asignaciones = new ArrayList<>();
 }

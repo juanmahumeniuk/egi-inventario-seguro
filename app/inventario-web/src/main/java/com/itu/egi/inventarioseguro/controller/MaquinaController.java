@@ -1,9 +1,7 @@
 package com.itu.egi.inventarioseguro.controller;
 
-import com.itu.egi.inventarioseguro.dto.MaquinaDetalleDTO;
+import com.itu.egi.inventarioseguro.dto.MaquinaConAsignacionesDTO;
 import com.itu.egi.inventarioseguro.dto.MaquinaRequest;
-import com.itu.egi.inventarioseguro.dto.MaquinaResumenDTO;
-import com.itu.egi.inventarioseguro.dto.PersonaDTO;
 import com.itu.egi.inventarioseguro.service.MaquinaService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,22 +19,22 @@ public class MaquinaController {
     private final MaquinaService maquinaService;
 
     @GetMapping
-    public ResponseEntity<List<MaquinaResumenDTO>> listar() {
+    public ResponseEntity<List<MaquinaConAsignacionesDTO>> listar() {
         return ResponseEntity.ok(maquinaService.findAll());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<MaquinaDetalleDTO> obtener(@PathVariable Long id) {
+    public ResponseEntity<MaquinaConAsignacionesDTO> obtener(@PathVariable Long id) {
         return ResponseEntity.ok(maquinaService.findById(id));
     }
 
     @PostMapping
-    public ResponseEntity<MaquinaDetalleDTO> crear(@Valid @RequestBody MaquinaRequest req) {
+    public ResponseEntity<MaquinaConAsignacionesDTO> crear(@Valid @RequestBody MaquinaRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(maquinaService.create(req));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<MaquinaDetalleDTO> actualizar(@PathVariable Long id, @Valid @RequestBody MaquinaRequest req) {
+    public ResponseEntity<MaquinaConAsignacionesDTO> actualizar(@PathVariable Long id, @Valid @RequestBody MaquinaRequest req) {
         return ResponseEntity.ok(maquinaService.update(id, req));
     }
 
@@ -44,10 +42,5 @@ public class MaquinaController {
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
         maquinaService.delete(id);
         return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/{id}/personas")
-    public ResponseEntity<List<PersonaDTO>> personas(@PathVariable Long id) {
-        return ResponseEntity.ok(maquinaService.findPersonasByMaquinaId(id));
     }
 }

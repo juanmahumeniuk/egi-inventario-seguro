@@ -4,11 +4,14 @@ import com.itu.egi.inventarioseguro.model.Aula;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Data
-public class MaquinaResumenDTO {
+public class MaquinaConAsignacionesDTO {
     private Long id;
-    private Aula aula;
     private Integer numeroMesa;
     private LocalDate fechaMantenimiento;
+    private Aula aula;
+    private EspecificacionesDTO especificaciones;
+    private List<AsignacionDTO> asignaciones;
 }

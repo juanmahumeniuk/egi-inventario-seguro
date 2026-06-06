@@ -25,6 +25,9 @@ spring:
     mongodb:
       uri: ${MONGO_URI:mongodb://localhost:27018/inventario_egi}
 
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
 server:
   port: 8080
   error:

@@ -15,13 +15,10 @@ public class MaquinaHardware {
 
     private String fabricante;
     private String modelo;
-    private String cpu;
-    private String ram;
-    private String disco;
     private TipoEquipo tipo;
-    private String os;
-
-    private String monitor;
-    private String mouse;
-    private String teclado;
+    private String cpu;
+    private Integer ramGb;
+    private Disco disco;
+    private String sistemaOperativo;
+    private Perifericos perifericos;
 }
