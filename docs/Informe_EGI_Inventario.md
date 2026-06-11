@@ -149,7 +149,7 @@ graph LR
     DOC --> _id["_id: Long (= Maquina.id en SQL)"]
     DOC --> fabricante["fabricante: String"]
     DOC --> modelo["modelo: String"]
-    DOC --> tipo["tipo: String\n(desktop | laptop | all-in-one)"]
+    DOC --> tipo["tipo: String\n(DESKTOP | LAPTOP | ALL_IN_ONE)"]
     DOC --> cpu["cpu: String"]
     DOC --> ramGb["ramGb: Integer (GB)"]
     DOC --> sistemaOperativo["sistemaOperativo: String"]
@@ -171,13 +171,13 @@ graph LR
   "_id": 10001,
   "fabricante": "Dell",
   "modelo": "OptiPlex 7090",
-  "tipo": "desktop",
+  "tipo": "DESKTOP",
   "cpu": "Intel Core i5-11500",
-  "ram_gb": 16,
-  "sistema_operativo": "Windows 11 Pro",
+  "ramGb": 16,
+  "sistemaOperativo": "Windows 11 Pro",
   "disco": {
     "tipo": "SSD",
-    "capacidad_gb": 512
+    "capacidadGb": 512
   },
   "perifericos": {
     "monitor": "Dell P2422H 24\"",
@@ -189,6 +189,28 @@ graph LR
 ```
 
 El campo `_id` del documento MongoDB es el mismo `Long` que el `id` de la tabla `Maquina` en SQL Server. Esto elimina la necesidad de un campo de referencia separado y permite que la aplicación recupere ambas fuentes de datos con una sola clave. Los campos `disco` y `perifericos` son objetos embebidos (no colecciones separadas). El campo `_class` es agregado automáticamente por Spring Data MongoDB.
+
+Notar que el documento almacenado usa los nombres de campo de las clases Java (camelCase: `ramGb`, `sistemaOperativo`) y los valores del enum en mayúsculas (`DESKTOP`), porque así persiste Spring Data MongoDB. La API REST expone estos mismos datos en snake_case y con el tipo en minúsculas (`ram_gb`, `"desktop"`), pero esa conversión ocurre en la capa Jackson del backend, no en la base.
+
+#### 4.2.3 Scripts de la colección (`migraciones/mongodb/`)
+
+| Archivo | Propósito |
+|---|---|
+| `V1__create_maquina_collection.js` | Creación inicial de la colección con validador (esquema v1, histórico) |
+| `V2__update_maquina_schema.js` | Actualiza el validador `$jsonSchema` al modelo vigente (objetos embebidos) vía `collMod` |
+| `V3__seed_maquina_documents.js` | Inserta los documentos de hardware de las máquinas seed de SQL, con estructuras variadas |
+| `documentos_maquina.json` | Los documentos seed en formato JSON plano (importable con `mongoimport`) |
+| `demo_crud.js` | Demo re-ejecutable de las operaciones de la consigna: inserts con estructuras variadas, búsquedas filtradas (campos embebidos, `$exists`, regex), `updateOne`/`updateMany` y `deleteOne`/`deleteMany` |
+
+Los scripts se ejecutan manualmente desde la línea de comandos contra la shell del contenedor, tal como exige la consigna:
+
+```bash
+docker exec -i egi-mongodb mongosh inventario_egi --quiet < migraciones/mongodb/V2__update_maquina_schema.js
+docker exec -i egi-mongodb mongosh inventario_egi --quiet < migraciones/mongodb/V3__seed_maquina_documents.js
+docker exec -i egi-mongodb mongosh inventario_egi --quiet < migraciones/mongodb/demo_crud.js
+```
+
+También es posible abrir una shell interactiva dentro del contenedor para ejecutar queries manualmente: `docker exec -it egi-mongodb mongosh inventario_egi`.
 
 ---
 
