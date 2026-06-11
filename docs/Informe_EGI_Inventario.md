@@ -401,9 +401,9 @@ El historial de commits debe reflejar la contribución individual de cada integr
 
 ---
 
-## 12. Implementación del Backend
+## 11. Implementación del Backend
 
-### 12.1 Estructura del proyecto Spring Boot
+### 11.1 Estructura del proyecto Spring Boot
 
 El backend se implementa como un monolito modular bajo `app/inventario-web/`, utilizando **Spring Boot 3.4.1** con **Java 17** y **Maven** como herramienta de construcción.
 
@@ -421,7 +421,7 @@ app/inventario-web/
     └── controller/     Controladores REST (/api/*)
 ```
 
-### 12.2 Dependencias principales
+### 11.2 Dependencias principales
 
 | Dependencia | Propósito |
 |---|---|
@@ -433,7 +433,7 @@ app/inventario-web/
 | `spring-boot-starter-validation` | Validación de DTOs con Jakarta Bean Validation |
 | `lombok` | Reducción de boilerplate (getters, setters, constructores) |
 
-### 12.3 Modelo de dominio
+### 11.3 Modelo de dominio
 
 #### Entidades JPA (SQL Server)
 
@@ -445,7 +445,7 @@ app/inventario-web/
 
 - **`MaquinaHardware`** — colección `maquina`. Su `_id` es el mismo `Long` que el `id` de la entidad `Maquina` en SQL Server, funcionando como clave compartida entre bases.
 
-### 12.4 Endpoints REST
+### 11.4 Endpoints REST
 
 Todos los endpoints devuelven y aceptan JSON con naming en **snake_case** (configurable globalmente via Jackson `SNAKE_CASE`).
 
@@ -516,7 +516,7 @@ Todos los endpoints devuelven y aceptan JSON con naming en **snake_case** (confi
 }
 ```
 
-### 12.5 Gestión de migraciones (Flyway)
+### 11.5 Gestión de migraciones (Flyway)
 
 Al arrancar la aplicación, Flyway ejecuta automáticamente las migraciones en orden:
 
@@ -527,7 +527,7 @@ Al arrancar la aplicación, Flyway ejecuta automáticamente las migraciones en o
 | V3 | Crea tabla `persona_maquina` (N:M) con índice en `maquina_id` |
 | V4 | Elimina columna `laboratorio` y agrega CHECK enum `aula` |
 
-### 12.6 Configuración de doble fuente de datos (JPA + MongoDB)
+### 11.6 Configuración de doble fuente de datos (JPA + MongoDB)
 
 La coexistencia de Spring Data JPA y Spring Data MongoDB en la misma aplicación requiere una configuración explícita para evitar conflictos en la detección automática de repositorios. Esto se implementa en la clase `DataSourceConfig`:
 
@@ -547,7 +547,7 @@ public class DataSourceConfig {
 
 El ajuste `SessionSynchronization.NEVER` es necesario para que Spring Data MongoDB no intente enlazar sus operaciones de escritura al ciclo de vida de las transacciones JPA activas (que gestionan SQL Server), lo que de otro modo causaría que las escrituras a MongoDB se descarten silenciosamente.
 
-### 12.7 Entorno de desarrollo local
+### 11.7 Entorno de desarrollo local
 
 Para el desarrollo local se provee el archivo `docker-compose.dev.yml` en la raíz del repositorio, que levanta:
 
@@ -558,7 +558,7 @@ Para el desarrollo local se provee el archivo `docker-compose.dev.yml` en la ra�
 
 MongoDB se expone en el **puerto 27018** (no 27017) para evitar conflictos con instalaciones locales del servicio MongoDB en Windows.
 
-### 12.8 Configuración de entorno
+### 11.8 Configuración de entorno
 
 La aplicación se configura mediante variables de entorno para no hardcodear credenciales:
 
@@ -570,9 +570,9 @@ La aplicación se configura mediante variables de entorno para no hardcodear cre
 
 ---
 
-## 13. Frontend — Aplicación React
+## 12. Frontend — Aplicación React
 
-### 13.1 Tecnologías
+### 12.1 Tecnologías
 
 La interfaz web está implementada con **React 19 + TypeScript + Vite + Tailwind CSS**, ubicada en `app/inventario-web/frontend/`.
 
@@ -583,7 +583,7 @@ La interfaz web está implementada con **React 19 + TypeScript + Vite + Tailwind
 | Tailwind CSS | 4 | Estilos utilitarios |
 | Lucide React | 0.546 | Iconografía |
 
-### 13.2 Arquitectura de servicios
+### 12.2 Arquitectura de servicios
 
 El frontend implementa una capa de servicios en `src/services/` que abstrae la comunicación con el backend:
 
@@ -593,7 +593,7 @@ El frontend implementa una capa de servicios en `src/services/` que abstrae la c
 | `authService.ts` | Login contra `/api/auth/login`, persistencia del token en `localStorage` |
 | `maquinaService.ts` | CRUD completo contra `/api/maquinas` y `/api/personas` |
 
-### 13.3 Modo Mock vs. Real
+### 12.3 Modo Mock vs. Real
 
 El frontend soporta dos modos controlados por variables de entorno en `.env`:
 
@@ -608,7 +608,7 @@ VITE_USE_MOCK=true
 
 El modo mock simula con fidelidad el comportamiento del backend (transacciones SQL + MongoDB) usando `localStorage`, lo que permite desarrollar el frontend de forma independiente.
 
-### 13.4 Levantar el frontend
+### 12.4 Levantar el frontend
 
 ```bash
 cd app/inventario-web/frontend
@@ -620,9 +620,9 @@ Credenciales por defecto para el login: `admin` / `admin123` (o cualquier usuari
 
 ---
 
-## 14. Integración Backend-Frontend
+## 13. Integración Backend-Frontend
 
-### 14.1 CORS
+### 13.1 CORS
 
 La clase `CorsConfig` (en `config/`) habilita CORS para que el frontend en `:3000` pueda comunicarse con el backend en `:8080`:
 
@@ -634,7 +634,7 @@ registry.addMapping("/api/**")
         .allowCredentials(true);
 ```
 
-### 14.2 Convención de naming JSON
+### 13.2 Convención de naming JSON
 
 Jackson está configurado globalmente con la estrategia `SNAKE_CASE` en `application.yml`:
 
@@ -646,7 +646,7 @@ spring:
 
 Esto convierte automáticamente los campos camelCase de Java (`numeroMesa`, `ramGb`, `sistemaOperativo`) a snake_case en el JSON (`numero_mesa`, `ram_gb`, `sistema_operativo`), alineándose con la convención del frontend.
 
-### 14.3 Autenticación (mock JWT)
+### 13.3 Autenticación (mock JWT)
 
 El endpoint `POST /api/auth/login` devuelve un token de sesión. La integración con el servidor LDAP real (OpenLDAP / Active Directory) está pendiente; por ahora, el endpoint acepta cualquier credencial y retorna un token aleatorio:
 
@@ -660,7 +660,7 @@ El endpoint `POST /api/auth/login` devuelve un token de sesión. La integración
 
 El rol se determina según el username: `admin` → `ADMIN`, cualquier otro → `TECNICO`.
 
-### 14.4 Validación del contrato de API
+### 13.4 Validación del contrato de API
 
 La integración fue verificada con Playwright (Chromium headless):
 
@@ -675,9 +675,9 @@ La integración fue verificada con Playwright (Chromium headless):
 
 ---
 
-## 15. Tests
+## 14. Tests
 
-### 15.1 Estrategia de testing
+### 14.1 Estrategia de testing
 
 Se implementaron **17 tests** divididos en tres niveles, sin requerir bases de datos externas:
 
@@ -688,7 +688,7 @@ Se implementaron **17 tests** divididos en tres niveles, sin requerir bases de d
 | Integración HTTP (auth) | `AuthControllerTest` | 3 | `@WebMvcTest` + MockMvc |
 | Placeholder | `InventarioApplicationTests` | 1 | — |
 
-### 15.2 Casos cubiertos
+### 14.2 Casos cubiertos
 
 **MaquinaServiceTest** — lógica de negocio:
 - `findAll` devuelve lista con datos de SQL + MongoDB combinados
@@ -712,7 +712,7 @@ Se implementaron **17 tests** divididos en tres niveles, sin requerir bases de d
 - Cualquier otro usuario → role `TECNICO`
 - Body vacío → respuesta 200 con token
 
-### 15.3 Ejecutar los tests
+### 14.3 Ejecutar los tests
 
 ```bash
 cd app/inventario-web
@@ -724,7 +724,7 @@ Los tests de controller (`@WebMvcTest`) y los unitarios (Mockito) no requieren D
 
 ---
 
-## 11. Conclusión
+## 15. Conclusión
 
 El proyecto EGI representa un ejercicio integral de ingeniería de sistemas, abarcando desde el análisis y diseño de bases de datos relacionales y documentales, hasta la implementación de seguridad perimetral, autenticación centralizada y orquestación de contenedores. La arquitectura propuesta es escalable, segura por diseño y alineada con los principios modernos de infraestructura como código y Zero-Trust Networking.
 
