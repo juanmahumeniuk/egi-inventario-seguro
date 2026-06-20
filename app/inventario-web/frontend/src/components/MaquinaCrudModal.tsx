@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Persona, MaquinaConAsignaciones, EspecificacionesEspecificas, CategoriaPersona, Aula } from '../types';
 import { X, Save, Plus, Database, Cpu, Monitor, UserCheck, Calendar, Info } from 'lucide-react';
-import { apiFetch, USE_MOCK } from '../services/api';
-
+import { maquinaService } from '../services/maquinaService';
 interface MaquinaCrudModalProps {
   maquina: MaquinaConAsignaciones | null; // Null means adding a new one
   personas: Persona[];
@@ -99,51 +98,34 @@ export default function MaquinaCrudModal({ maquina, personas, onSave, onClose }:
     e.preventDefault();
     if (!newPersonaNombre.trim() || !newPersonaApellido.trim()) return;
 
-    let newPersona: Persona;
-
-    if (USE_MOCK) {
-      const newId = Math.max(...localPersonas.map((p) => p.id), 100) + 1;
-      newPersona = {
-        id: newId,
+    try {
+      const newPersona = await maquinaService.createPersona({
         nombre: newPersonaNombre.trim(),
         apellido: newPersonaApellido.trim(),
         categoria: newPersonaCategoria,
-      };
-    } else {
-      try {
-        // Llamada real al backend para persistir la nueva persona
-        newPersona = await apiFetch<Persona>('/personas', {
-          method: 'POST',
-          body: JSON.stringify({
-            nombre: newPersonaNombre.trim(),
-            apellido: newPersonaApellido.trim(),
-            categoria: newPersonaCategoria,
-          }),
-        });
-      } catch (err) {
-        console.error('Error al guardar nueva persona en backend:', err);
-        alert('Error al guardar la nueva persona en la base de datos.');
-        return;
-      }
+      });
+
+      const updated = [...localPersonas, newPersona];
+      setLocalPersonas(updated);
+      
+      // Auto-select this newly created person
+      setAssignments((prev) => ({
+        ...prev,
+        [newPersona.id]: {
+          selected: true,
+          fecha_asignado: new Date().toISOString().split('T')[0],
+        },
+      }));
+
+      // Reset fields
+      setNewPersonaNombre('');
+      setNewPersonaApellido('');
+      setNewPersonaCategoria('Alumno');
+      setShowAddPersona(false);
+    } catch (err) {
+      console.error("Error creating persona", err);
+      alert("Error al crear persona. Verifique la conexión con el servidor.");
     }
-
-    const updated = [...localPersonas, newPersona];
-    setLocalPersonas(updated);
-    
-    // Auto-select this newly created person
-    setAssignments((prev) => ({
-      ...prev,
-      [newPersona.id]: {
-        selected: true,
-        fecha_asignado: new Date().toISOString().split('T')[0],
-      },
-    }));
-
-    // Reset fields
-    setNewPersonaNombre('');
-    setNewPersonaApellido('');
-    setNewPersonaCategoria('Alumno');
-    setShowAddPersona(false);
   };
 
   const handleAssignmentToggle = (personaId: number) => {

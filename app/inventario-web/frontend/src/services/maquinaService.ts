@@ -31,6 +31,19 @@ export const maquinaService = {
     return apiFetch<Persona[]>('/personas');
   },
 
+  // Creates a new persona.
+  // Backend Flow: Inserts Persona record in SQL Server.
+  async createPersona(personaData: Omit<Persona, 'id'>): Promise<Persona> {
+    if (USE_MOCK) {
+      return mockDb.createPersona(personaData);
+    }
+
+    return apiFetch<Persona>('/personas', {
+      method: 'POST',
+      body: JSON.stringify(personaData)
+    });
+  },
+
   // Returns details of a specific machine.
   // Backend Flow:
   // 1. Query SQL Server for machine ID. If not found, return 404.

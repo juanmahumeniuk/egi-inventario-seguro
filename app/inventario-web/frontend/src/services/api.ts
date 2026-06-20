@@ -76,6 +76,18 @@ export const mockDb = {
     return data.personaMaquinas;
   },
 
+  async createPersona(personaData: Omit<Persona, 'id'>): Promise<Persona> {
+    await delay(200);
+    const data = getSavedData();
+    const nextId = Math.max(...data.personas.map(p => p.id), 0) + 1;
+    const newPersona = { id: nextId, ...personaData };
+    saveData({
+      ...data,
+      personas: [...data.personas, newPersona]
+    });
+    return newPersona;
+  },
+
   // Simulates obtaining a single unified machine.
   // This simulates the backend's rule: Query SQL first, then MongoDB if found.
   async getMaquinaById(id: number) {
