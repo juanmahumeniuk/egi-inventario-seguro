@@ -173,7 +173,7 @@
                             <goal>install-node-and-npm</goal>
                         </goals>
                         <configuration>
-                            <nodeVersion>v18.18.0</nodeVersion>
+                            <nodeVersion>v20.18.0</nodeVersion>
                         </configuration>
                     </execution>
                     <execution>
@@ -192,6 +192,10 @@
                         </goals>
                         <configuration>
                             <arguments>run build</arguments>
+                            <environmentVariables>
+                                <VITE_API_URL>/api</VITE_API_URL>
+                                <VITE_USE_MOCK>false</VITE_USE_MOCK>
+                            </environmentVariables>
                         </configuration>
                     </execution>
                 </executions>

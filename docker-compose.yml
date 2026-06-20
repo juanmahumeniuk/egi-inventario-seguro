@@ -21,25 +21,15 @@ services:
       - .env
     environment:
       MONGO_URI: ${MONGO_URI:-mongodb://mongodb:27017/inventario_egi}
-      DB_URL: ${DB_URL:?DB_URL is required — set the external SQL Server VM connection string in .env}
+      DB_URL: ${DB_URL:?DB_URL is required — apunta a la VM de SQL Server externa}
       DB_USER: ${DB_USER:-sa}
-      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required — set in .env}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:3000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       mongodb:
         condition: service_healthy
-
-  frontend:
-    build:
-      context: ./app/inventario-web/frontend
-      args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080/api}
-        VITE_USE_MOCK: ${VITE_USE_MOCK:-false}
-    container_name: egi-frontend
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
 
 volumes:
   mongo-data:

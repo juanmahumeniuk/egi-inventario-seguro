@@ -2,7 +2,7 @@
 import { getSavedData, saveData } from '../data';
 import { Persona, Maquina, PersonaMaquina, EspecificacionesEspecificas, Aula } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
 
 // Delay helper for mock responses

@@ -141,20 +141,62 @@ mvn spring-boot:run -Dspring-boot.run.jvmArguments="-DDB_PASSWORD=EGI_Password12
 
 ## Despliegue con Docker
 
-Levanta **frontend**, **backend** y **MongoDB**. SQL Server corre en una **VM externa** (no dockerizada).
+Levanta la **aplicación** (Spring Boot + frontend embebido) y **MongoDB**. **SQL Server corre en una VM externa** (no incluido en este compose).
 
 ```bash
 cp .env.example .env
-# Editar .env: DB_URL, DB_PASSWORD y URLs públicas del frontend/API
+# Editar .env: DB_URL y DB_PASSWORD apuntando a la VM de SQL Server
 docker compose up --build -d
 ```
 
 | Servicio | Dónde corre | URL (ejemplo local) |
 |----------|-------------|---------------------|
-| Frontend | Contenedor Docker | http://localhost:3000 |
-| Backend  | Contenedor Docker | http://localhost:8080/api |
-| MongoDB  | Contenedor Docker | red interna (`mongodb:27017`) |
+| App (API + UI) | Contenedor Docker | http://localhost:8080 |
+| API REST | Mismo contenedor | http://localhost:8080/api |
+| MongoDB | Contenedor Docker | red interna (`mongodb:27017`) |
 | SQL Server | **VM externa** | configurado en `DB_URL` del `.env` |
+
+El frontend React se compila durante `mvn package` (via `frontend-maven-plugin`) y se sirve como estático desde Spring Boot. No hay contenedor nginx separado.
+
+### Generar las imágenes Docker
+
+| Imagen | Origen | Descripción |
+|--------|--------|-------------|
+| `almacenamiento-seguro-backend` | [`app/inventario-web/Dockerfile`](app/inventario-web/Dockerfile) | Spring Boot + frontend embebido |
+| `mongo:7` | Docker Hub | Base de datos MongoDB |
+
+**Construir todas las imágenes** (sin levantar contenedores):
+
+```bash
+cp .env.example .env
+docker compose build
+```
+
+**Construir la imagen de la aplicación:**
+
+```bash
+docker build -t almacenamiento-seguro-backend ./app/inventario-web
+```
+
+**Verificar que las imágenes existen:**
+
+```bash
+docker images | grep -E "almacenamiento-seguro|mongo"
+```
+
+**Exportar para otra máquina** (sin reconstruir en el destino):
+
+```bash
+docker save almacenamiento-seguro-backend mongo:7 \
+  -o inventario-seguro-images.tar
+```
+
+En el servidor destino:
+
+```bash
+docker load -i inventario-seguro-images.tar
+cp .env.example .env   # configurar y luego: docker compose up -d
+```
 
 ### Preparar la VM de SQL Server
 
@@ -214,6 +256,40 @@ docker compose exec -T mongodb mongosh inventario_egi --quiet < migraciones/mong
 | DELETE | `/api/personas/{id}` | Eliminar persona |
 | POST | `/api/asignaciones` | Asignar máquina a persona |
 | DELETE | `/api/asignaciones/{personaId}/{maquinaId}` | Desasignar |
+
+---
+
+## Despliegue en Kubernetes (Minikube + pfSense)
+
+Orden recomendado: **levantar conectividad primero y aplicar las NetworkPolicies al final**. Detalle completo en el informe (§6.5 pfSense, §6.1 Calico, §7.4 orden de despliegue).
+
+```bash
+# 1. Iniciar el clúster CON Calico (el CNI se elige al crear el clúster; no se agrega después)
+minikube start --cni=calico
+
+# 2. Habilitar el Ingress Controller
+minikube addons enable ingress
+
+# 3. Aplicar los manifiestos (config -> datos -> app -> red), incluido el NodePort 30443
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/configmap.yaml -f k8s/01-config/secret.yaml
+kubectl apply -f k8s/storage/mongodb-pvc.yaml -f k8s/deployments/mongodb.yaml -f k8s/services/mongodb.yaml
+kubectl apply -f k8s/deployments/inventario-web.yaml -f k8s/services/inventario-web.yaml
+kubectl apply -f k8s/ingress/inventario-ingress.yaml
+kubectl apply -f k8s/ingress/ingress-nginx-nodeport.yaml   # expone el 30443
+
+# 4. Configurar pfSense (port forward WAN:443 -> 192.168.10.40:30443) y probar SIN políticas -> debe responder
+
+# 5. Aplicar las NetworkPolicies (denegación total + 4 permisos, JUNTOS)
+kubectl apply -f k8s/network-policies/
+```
+
+> **Tres cosas que rompen el despliegue si no se respetan:**
+> 1. **Calico va al inicio.** Sin `--cni=calico` al crear el clúster, las NetworkPolicies no surten efecto y agregarlo después obliga a recrear el clúster.
+> 2. **El NodePort 30443 debe ser alcanzable en la IP de la VM4** (`192.168.10.40`). Según el driver de Minikube puede quedar interno; usar `--driver=none`, `minikube tunnel` o reenvío en la VM.
+> 3. **Al aplicar `default-deny-all`, el 30443 deja de responder** hasta que esté `allow-ingress-to-web`. Aplicar denegación y permisos en un solo paso.
+
+> **Nota:** los manifiestos `k8s/` (monolito `inventario-web`) provienen de la rama `devops`; este README los referencia para el flujo unificado.
 
 ---
 
