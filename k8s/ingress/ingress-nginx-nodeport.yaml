@@ -1,0 +1,47 @@
+# Service NodePort para el controlador ingress-nginx, fijado en 30443.
+#
+# Por qué este archivo:
+#   Un objeto Ingress NO tiene NodePort. El puerto expuesto hacia afuera vive en
+#   el Service del controlador ingress-nginx. pfSense redirige WAN:443 -> VM4:30443,
+#   por eso necesitamos un NodePort FIJO y conocido (30443) en el controlador.
+#
+# Por qué un Service nuevo (aditivo) y no editar el del addon:
+#   minikube crea su propio Service `ingress-nginx-controller` (con NodePort aleatorio).
+#   En vez de pisarlo, agregamos ESTE Service apuntando a los mismos pods del
+#   controlador, pero con nodePort fijo 30443. Si algo no matchea, no rompe el ingress
+#   existente: simplemente este acceso extra no rutea.
+#
+# Flujo resultante:
+#   pfSense WAN:443 -> VM4:30443 -> controlador ingress-nginx (443/HTTPS)
+#     -> Ingress (host inventario.itu.local) -> Service inventario-web:8080
+#
+# Requisitos / verificación antes de aplicar:
+#   1) Habilitar el addon de ingress:  minikube addons enable ingress
+#   2) Confirmar el selector y el nombre del puerto reales del controlador:
+#        kubectl -n ingress-nginx get svc ingress-nginx-controller -o yaml
+#      Ajustar 'selector' y 'targetPort' de abajo si difieren en tu versión.
+#
+# Nota TLS: el Ingress no define TLS, así que ingress-nginx sirve 443 con su
+#   certificado autofirmado por defecto. Suficiente para el laboratorio (el usuario
+#   verá un aviso de certificado). Si se quiere cert propio, agregar un bloque tls
+#   con un Secret al Ingress.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-nginx-pfsense-nodeport
+  namespace: ingress-nginx
+  labels:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/component: controller
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/component: controller
+  ports:
+  - name: https
+    protocol: TCP
+    port: 443
+    targetPort: https   # puerto nombrado del pod del controlador (443)
+    nodePort: 30443
