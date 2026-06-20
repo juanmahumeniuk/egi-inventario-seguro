@@ -37,12 +37,9 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
-                // Endpoints públicos
                 .requestMatchers("/api/auth/login").permitAll()
-                // Frontend y recursos estáticos
-                .requestMatchers("/", "/index.html", "/static/**", "/assets/**", "*.js", "*.css", "*.svg", "*.ico", "*.png").permitAll()
-                // Cualquier otra solicitud requiere autenticación
-                .anyRequest().authenticated()
+                .requestMatchers("/api/**").authenticated()
+                .anyRequest().permitAll()
             )
             .exceptionHandling(ex -> ex.authenticationEntryPoint(jwtAuthenticationEntryPoint))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));

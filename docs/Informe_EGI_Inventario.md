@@ -456,9 +456,8 @@ El proyecto debe versionarse en un repositorio Git unificado con la siguiente es
 │       └── mongodb-pvc.yaml
 ├── app/
 │   ├── inventario-web/
-│   │   ├── Dockerfile          # Backend Spring Boot (multi-stage)
+│   │   ├── Dockerfile          # Spring Boot + frontend embebido (multi-stage)
 │   │   ├── frontend/
-│   │   │   ├── Dockerfile      # Frontend React (nginx)
 │   │   │   └── src/
 │   │   └── src/
 ├── migraciones/
@@ -664,22 +663,26 @@ docker compose -f docker-compose.dev.yml up -d
 
 #### Despliegue — `docker-compose.yml`
 
-Levanta **frontend**, **backend** y **MongoDB** con builds de producción (nginx + JAR). **SQL Server no se dockeriza**: corre en una **VM externa** y el backend se conecta mediante variables de entorno.
+Levanta la **aplicación** (Spring Boot con frontend embebido) y **MongoDB**. SQL Server puede incluirse en el compose o correr en una VM externa según `DB_URL`.
+
+El frontend React se compila durante `mvn package` (`frontend-maven-plugin`) hacia `src/main/resources/static` y se sirve desde el mismo puerto que la API. **Un solo contenedor de aplicación**, sin nginx separado.
 
 | Servicio | Dónde corre | Puerto (ejemplo) |
 |---|---|---|
-| Frontend (nginx) | Contenedor Docker | 3000 → 80 |
-| Backend (Spring Boot) | Contenedor Docker | 8080 |
+| App (Spring Boot + UI) | Contenedor Docker | 8080 |
 | MongoDB | Contenedor Docker | red interna `mongodb:27017` |
-| SQL Server | **VM externa** | 1433 (configurado en `DB_URL`) |
+| SQL Server | Contenedor o VM externa | 1433 (configurado en `DB_URL`) |
 
 ```bash
 cp .env.example .env
-# Editar .env con la IP/hostname de la VM de SQL Server
 docker compose up --build -d
+# App completa: http://localhost:8080
+# API:          http://localhost:8080/api
 ```
 
-##### Preparar la VM de SQL Server
+Durante el build Docker, `VITE_API_URL=/api` (ruta relativa, misma origin). No se requiere CORS en producción embebida.
+
+##### Preparar SQL Server (VM externa)
 
 1. Instalar SQL Server en la VM y abrir el puerto **1433** hacia el host donde corre Docker.
 2. Crear la base de datos (una sola vez):
@@ -723,7 +726,7 @@ La aplicación se configura mediante variables de entorno para no hardcodear cre
 | `DB_USER` | `sa` | Usuario SQL Server |
 | `DB_PASSWORD` | `sa` | Contraseña SQL Server |
 | `MONGO_URI` | `mongodb://localhost:27018/inventario_egi` | URI MongoDB. En Docker: `mongodb://mongodb:27017/inventario_egi` |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Orígenes permitidos para CORS (URL pública del frontend) |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Orígenes CORS (solo necesario en dev con Vite en `:3000`) |
 
 En `application.yml`, la URL de SQL Server se resuelve desde `DB_URL`:
 
@@ -735,16 +738,16 @@ spring:
     password: ${DB_PASSWORD:sa}
 ```
 
-#### Frontend (build Docker)
+#### Frontend embebido (build)
 
-Estas variables se inyectan en **build time** mediante build args del `docker-compose.yml`:
+El frontend se compila con `VITE_API_URL=/api` (configurado en `pom.xml` y en el Dockerfile). En producción embebida la API se llama con ruta relativa; no hace falta configurar `VITE_*` en el `.env` de Docker.
 
-| Variable | Valor por defecto | Descripción |
-|---|---|---|
-| `VITE_API_URL` | `http://localhost:8080/api` | URL pública de la API (desde el navegador del usuario) |
-| `VITE_USE_MOCK` | `false` | Si es `true`, el frontend usa datos mock en localStorage sin backend |
+Para desarrollo local con Vite (`npm run dev` en `:3000`), usar `app/inventario-web/frontend/.env.local`:
 
-Para desarrollo local con Vite (`npm run dev`), las mismas variables se definen en `app/inventario-web/frontend/.env.local`.
+```env
+VITE_API_URL=http://localhost:8080/api
+VITE_USE_MOCK=false
+```
 
 ---
 
@@ -776,7 +779,8 @@ El frontend implementa una capa de servicios en `src/services/` que abstrae la c
 El frontend soporta dos modos controlados por variables de entorno:
 
 ```env
-# Modo real (conecta al backend Spring Boot)
+# Producción embebida: fallback /api (no requiere configuración)
+# Desarrollo con Vite (:3000 → API :8080):
 VITE_API_URL=http://localhost:8080/api
 VITE_USE_MOCK=false
 
@@ -787,9 +791,7 @@ VITE_USE_MOCK=true
 | Archivo | Cuándo usarlo |
 |---|---|
 | `app/inventario-web/frontend/.env.local` | Desarrollo local con `npm run dev` |
-| `.env` (raíz del repo) | Despliegue con `docker compose up` (build args del frontend y env del backend) |
-
-Ver `.env.example` en la raíz del repositorio para la plantilla completa de despliegue.
+| Build embebido (`mvn package` / Docker) | `VITE_API_URL=/api` automático via `pom.xml` |
 
 El modo mock simula con fidelidad el comportamiento del backend (transacciones SQL + MongoDB) usando `localStorage`, lo que permite desarrollar el frontend de forma independiente.
 
@@ -809,20 +811,12 @@ Credenciales por defecto para el login: `admin` / `admin123` (o cualquier usuari
 
 ### 13.1 CORS
 
-La clase `CorsConfig` (en `config/`) habilita CORS para que el frontend pueda comunicarse con el backend. Los orígenes permitidos se configuran con la variable de entorno `CORS_ALLOWED_ORIGINS` (por defecto `http://localhost:3000`):
+La clase `CorsConfig` habilita CORS para desarrollo con Vite (`npm run dev` en `:3000` → API en `:8080`). En producción embebida (todo en `:8080`) no es necesario. Orígenes configurables via `CORS_ALLOWED_ORIGINS`:
 
 ```java
 @Value("${CORS_ALLOWED_ORIGINS:http://localhost:3000}")
 private String[] allowedOrigins;
-
-registry.addMapping("/api/**")
-        .allowedOrigins(allowedOrigins)
-        .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-        .allowedHeaders("*")
-        .allowCredentials(true);
 ```
-
-En despliegue Docker, `CORS_ALLOWED_ORIGINS` debe coincidir con la URL pública desde la que se sirve el frontend.
 
 ### 13.2 Convención de naming JSON
 

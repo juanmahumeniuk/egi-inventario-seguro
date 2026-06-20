@@ -141,51 +141,41 @@ mvn spring-boot:run -Dspring-boot.run.jvmArguments="-DDB_PASSWORD=EGI_Password12
 
 ## Despliegue con Docker
 
-Levanta **frontend**, **backend** y **MongoDB**. SQL Server corre en una **VM externa** (no dockerizada).
+Levanta la **aplicación** (Spring Boot + frontend embebido) y **MongoDB**. SQL Server puede correr en el mismo compose o en una VM externa según `DB_URL`.
 
 ```bash
 cp .env.example .env
-# Editar .env: DB_URL, DB_PASSWORD y URLs públicas del frontend/API
+# Editar .env: DB_URL, DB_PASSWORD
 docker compose up --build -d
 ```
 
 | Servicio | Dónde corre | URL (ejemplo local) |
 |----------|-------------|---------------------|
-| Frontend | Contenedor Docker | http://localhost:3000 |
-| Backend  | Contenedor Docker | http://localhost:8080/api |
-| MongoDB  | Contenedor Docker | red interna (`mongodb:27017`) |
-| SQL Server | **VM externa** | configurado en `DB_URL` del `.env` |
+| App (API + UI) | Contenedor Docker | http://localhost:8080 |
+| API REST | Mismo contenedor | http://localhost:8080/api |
+| MongoDB | Contenedor Docker | red interna (`mongodb:27017`) |
+| SQL Server | Contenedor o VM externa | configurado en `DB_URL` del `.env` |
+
+El frontend React se compila durante `mvn package` (via `frontend-maven-plugin`) y se sirve como estático desde Spring Boot. No hay contenedor nginx separado.
 
 ### Generar las imágenes Docker
 
-El proyecto define tres imágenes. Dos se construyen desde el repositorio; MongoDB se descarga de Docker Hub al hacer `build` o `up`:
-
-| Imagen | Origen | Dockerfile |
-|--------|--------|------------|
-| `almacenamiento-seguro-backend` | Build local | [`app/inventario-web/Dockerfile`](app/inventario-web/Dockerfile) |
-| `almacenamiento-seguro-frontend` | Build local | [`app/inventario-web/frontend/Dockerfile`](app/inventario-web/frontend/Dockerfile) |
-| `mongo:7` | Docker Hub | — (no requiere build) |
+| Imagen | Origen | Descripción |
+|--------|--------|-------------|
+| `almacenamiento-seguro-backend` | [`app/inventario-web/Dockerfile`](app/inventario-web/Dockerfile) | Spring Boot + frontend embebido |
+| `mongo:7` | Docker Hub | Base de datos MongoDB |
 
 **Construir todas las imágenes** (sin levantar contenedores):
 
 ```bash
 cp .env.example .env
-# Editar .env con DB_URL y DB_PASSWORD
 docker compose build
 ```
 
-**Construir una imagen individual:**
+**Construir la imagen de la aplicación:**
 
 ```bash
-# Backend (Spring Boot)
 docker build -t almacenamiento-seguro-backend ./app/inventario-web
-
-# Frontend (React + nginx)
-docker build \
-  --build-arg VITE_API_URL=http://localhost:8080/api \
-  --build-arg VITE_USE_MOCK=false \
-  -t almacenamiento-seguro-frontend \
-  ./app/inventario-web/frontend
 ```
 
 **Verificar que las imágenes existen:**
@@ -197,7 +187,7 @@ docker images | grep -E "almacenamiento-seguro|mongo"
 **Exportar para otra máquina** (sin reconstruir en el destino):
 
 ```bash
-docker save almacenamiento-seguro-backend almacenamiento-seguro-frontend mongo:7 \
+docker save almacenamiento-seguro-backend mongo:7 \
   -o inventario-seguro-images.tar
 ```
 

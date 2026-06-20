@@ -52,24 +52,12 @@ services:
       DB_URL: ${DB_URL:-jdbc:sqlserver://sqlserver:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true}
       DB_USER: ${DB_USER:-sa}
       DB_PASSWORD: ${DB_PASSWORD:-EGI_Password123!}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:3000}
     depends_on:
       mongodb:
         condition: service_healthy
       sqlserver:
         condition: service_healthy
-
-  frontend:
-    build:
-      context: ./app/inventario-web/frontend
-      args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080/api}
-        VITE_USE_MOCK: ${VITE_USE_MOCK:-false}
-    container_name: egi-frontend
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
 
 volumes:
   mongo-data:
