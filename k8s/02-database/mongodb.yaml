@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: egi-mongodb
+  namespace: egi-inventario
+spec:
+  serviceName: "egi-mongodb"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: egi-mongodb
+  template:
+    metadata:
+      labels:
+        app: egi-mongodb
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo:7
+        ports:
+        - containerPort: 27017
+          name: mongodb
+        volumeMounts:
+        - name: mongo-data
+          mountPath: /data/db
+        livenessProbe:
+          exec:
+            command:
+              - mongosh
+              - --eval
+              - "db.adminCommand('ping')"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: mongo-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egi-mongodb
+  namespace: egi-inventario
+spec:
+  ports:
+  - port: 27017
+    targetPort: 27017
+  selector:
+    app: egi-mongodb
