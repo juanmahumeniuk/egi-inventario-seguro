@@ -6,20 +6,13 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: egi-inventario.local
+  - host: inventario.itu.local
     http:
       paths:
-      - path: /api
+      - path: /
         pathType: Prefix
         backend:
           service:
             name: egi-backend
             port:
               number: 8080
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: egi-frontend
-            port:
-              number: 80

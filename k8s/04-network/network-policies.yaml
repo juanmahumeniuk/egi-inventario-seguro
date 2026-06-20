@@ -16,10 +16,8 @@ metadata:
   namespace: egi-inventario
 spec:
   podSelector:
-    matchExpressions:
-      - key: app
-        operator: In
-        values: [egi-frontend, egi-backend]
+    matchLabels:
+      app: egi-backend
   policyTypes:
   - Ingress
   ingress:

@@ -13,6 +13,6 @@ data:
   
   # Configuración Frontend y CORS
   # Se contempla el puerto 30443 del Ingress
-  CORS_ALLOWED_ORIGINS: "https://egi-inventario.local:30443,http://egi-inventario.local:30443"
-  VITE_API_URL: "https://egi-inventario.local:30443/api"
+  CORS_ALLOWED_ORIGINS: "https://inventario.itu.local:30443,http://inventario.itu.local:30443"
+  VITE_API_URL: "https://inventario.itu.local:30443/api"
   VITE_USE_MOCK: "false"
