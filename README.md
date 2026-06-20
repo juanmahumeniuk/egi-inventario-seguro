@@ -141,11 +141,11 @@ mvn spring-boot:run -Dspring-boot.run.jvmArguments="-DDB_PASSWORD=EGI_Password12
 
 ## Despliegue con Docker
 
-Levanta la **aplicación** (Spring Boot + frontend embebido) y **MongoDB**. SQL Server puede correr en el mismo compose o en una VM externa según `DB_URL`.
+Levanta la **aplicación** (Spring Boot + frontend embebido) y **MongoDB**. **SQL Server corre en una VM externa** (no incluido en este compose).
 
 ```bash
 cp .env.example .env
-# Editar .env: DB_URL, DB_PASSWORD
+# Editar .env: DB_URL y DB_PASSWORD apuntando a la VM de SQL Server
 docker compose up --build -d
 ```
 
@@ -154,7 +154,7 @@ docker compose up --build -d
 | App (API + UI) | Contenedor Docker | http://localhost:8080 |
 | API REST | Mismo contenedor | http://localhost:8080/api |
 | MongoDB | Contenedor Docker | red interna (`mongodb:27017`) |
-| SQL Server | Contenedor o VM externa | configurado en `DB_URL` del `.env` |
+| SQL Server | **VM externa** | configurado en `DB_URL` del `.env` |
 
 El frontend React se compila durante `mvn package` (via `frontend-maven-plugin`) y se sirve como estático desde Spring Boot. No hay contenedor nginx separado.
 

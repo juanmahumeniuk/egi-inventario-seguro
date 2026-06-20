@@ -663,7 +663,7 @@ docker compose -f docker-compose.dev.yml up -d
 
 #### Despliegue — `docker-compose.yml`
 
-Levanta la **aplicación** (Spring Boot con frontend embebido) y **MongoDB**. SQL Server puede incluirse en el compose o correr en una VM externa según `DB_URL`.
+Levanta la **aplicación** (Spring Boot con frontend embebido) y **MongoDB**. **SQL Server no se dockeriza**: corre en una VM externa y el backend se conecta mediante `DB_URL` en `.env`.
 
 El frontend React se compila durante `mvn package` (`frontend-maven-plugin`) hacia `src/main/resources/static` y se sirve desde el mismo puerto que la API. **Un solo contenedor de aplicación**, sin nginx separado.
 
@@ -671,10 +671,11 @@ El frontend React se compila durante `mvn package` (`frontend-maven-plugin`) hac
 |---|---|---|
 | App (Spring Boot + UI) | Contenedor Docker | 8080 |
 | MongoDB | Contenedor Docker | red interna `mongodb:27017` |
-| SQL Server | Contenedor o VM externa | 1433 (configurado en `DB_URL`) |
+| SQL Server | **VM externa** | 1433 (configurado en `DB_URL`) |
 
 ```bash
 cp .env.example .env
+# Editar DB_URL y DB_PASSWORD con la VM de SQL Server
 docker compose up --build -d
 # App completa: http://localhost:8080
 # API:          http://localhost:8080/api
