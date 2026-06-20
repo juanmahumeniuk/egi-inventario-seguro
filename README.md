@@ -156,6 +156,58 @@ docker compose up --build -d
 | MongoDB  | Contenedor Docker | red interna (`mongodb:27017`) |
 | SQL Server | **VM externa** | configurado en `DB_URL` del `.env` |
 
+### Generar las imágenes Docker
+
+El proyecto define tres imágenes. Dos se construyen desde el repositorio; MongoDB se descarga de Docker Hub al hacer `build` o `up`:
+
+| Imagen | Origen | Dockerfile |
+|--------|--------|------------|
+| `almacenamiento-seguro-backend` | Build local | [`app/inventario-web/Dockerfile`](app/inventario-web/Dockerfile) |
+| `almacenamiento-seguro-frontend` | Build local | [`app/inventario-web/frontend/Dockerfile`](app/inventario-web/frontend/Dockerfile) |
+| `mongo:7` | Docker Hub | — (no requiere build) |
+
+**Construir todas las imágenes** (sin levantar contenedores):
+
+```bash
+cp .env.example .env
+# Editar .env con DB_URL y DB_PASSWORD
+docker compose build
+```
+
+**Construir una imagen individual:**
+
+```bash
+# Backend (Spring Boot)
+docker build -t almacenamiento-seguro-backend ./app/inventario-web
+
+# Frontend (React + nginx)
+docker build \
+  --build-arg VITE_API_URL=http://localhost:8080/api \
+  --build-arg VITE_USE_MOCK=false \
+  -t almacenamiento-seguro-frontend \
+  ./app/inventario-web/frontend
+```
+
+**Verificar que las imágenes existen:**
+
+```bash
+docker images | grep -E "almacenamiento-seguro|mongo"
+```
+
+**Exportar para otra máquina** (sin reconstruir en el destino):
+
+```bash
+docker save almacenamiento-seguro-backend almacenamiento-seguro-frontend mongo:7 \
+  -o inventario-seguro-images.tar
+```
+
+En el servidor destino:
+
+```bash
+docker load -i inventario-seguro-images.tar
+cp .env.example .env   # configurar y luego: docker compose up -d
+```
+
 ### Preparar la VM de SQL Server
 
 1. Instalar SQL Server en la VM y abrir el puerto **1433** hacia el host donde corre Docker.

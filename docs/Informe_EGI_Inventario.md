@@ -4,7 +4,7 @@ El presente informe documenta el diseño, análisis y planificación del sistema
 
 El problema central que motiva este proyecto es la necesidad de la universidad de contar con un sistema centralizado y seguro para inventariar las computadoras de sus laboratorios de informática. Actualmente, la gestión del inventario de hardware y la trazabilidad de ubicación y responsabilidad de cada equipo se realizan de forma manual o descentralizada, lo que implica riesgos de pérdida de información, dificultad para auditorías y falta de visibilidad operativa.
 
-La solución propuesta contempla el desarrollo de una **aplicación web** que integre dos bases de datos heterogéneas (SQL Server y MongoDB), un servidor de identidad centralizado (Active Directory/LDAP), y un despliegue contenerizado sobre Kubernetes (Minikube), cumpliendo con estrictas políticas de seguridad perimetral simuladas mediante GUFW/pfSense.
+La solución propuesta contempla el desarrollo de una **aplicación web** que integre dos bases de datos heterogéneas (SQL Server y MongoDB) y un servidor de identidad centralizado (Active Directory/LDAP) mediante una **arquitectura híbrida** distribuida en 4 máquinas virtuales independientes, garantizando la separación de responsabilidades y simulando un entorno empresarial/institucional real protegido por un firewall perimetral.
 
 ---
 
@@ -12,15 +12,15 @@ La solución propuesta contempla el desarrollo de una **aplicación web** que in
 
 ### 2.1 Objetivo General
 
-Desarrollar un ecosistema de software seguro, contenerizado y versionado que permita inventariar las computadoras de los laboratorios del ITU, cumpliendo con los principios de mínimo privilegio, autenticación centralizada y arquitectura Zero-Trust.
+Desarrollar un ecosistema de software seguro y versionado que permita inventariar las computadoras de los laboratorios del ITU, cumpliendo con los principios de mínimo privilegio, autenticación centralizada, arquitectura Zero-Trust y separación de entornos mediante máquinas virtuales y orquestación con Kubernetes (Minikube).
 
 ### 2.2 Objetivos Específicos
 
-- Diseñar e implementar una aplicación web capaz de consultar SQL Server para obtener datos de ubicación y asignación de equipos, y MongoDB para obtener los datos de hardware.
-- Configurar un servidor Active Directory/LDAP para la autenticación centralizada de usuarios.
-- Desplegar todos los componentes del sistema de forma contenerizada mediante Docker y orquestados con Kubernetes (Minikube con CNI Calico).
-- Implementar NetworkPolicies de Kubernetes que garanticen el principio de mínimo privilegio en el tráfico de red interno del clúster.
-- Simular un perímetro de seguridad mediante GUFW/pfSense que emule el entorno de firewall universitario.
+- Diseñar e implementar una aplicación web capaz de consultar SQL Server (alojado en una VM externa dedicada) para obtener datos de ubicación y asignación de equipos, y MongoDB (contenerizado en Kubernetes) para obtener los datos de hardware.
+- Integrar la autenticación de usuarios contra un servidor Active Directory/LDAP y resolución DNS interna en una VM dedicada de Windows Server.
+- Desplegar los componentes de aplicación de forma contenerizada mediante Docker y orquestados con Kubernetes (Minikube con CNI Calico) dentro de una VM independiente.
+- Implementar NetworkPolicies en Kubernetes que garanticen el principio de mínimo privilegio en el tráfico de red interno del clúster y en la comunicación saliente a servicios externos.
+- Simular un perímetro de seguridad mediante un firewall perimetral (UFW/GUFW sobre Ubuntu Server o pfSense como alternativa) en una VM dedicada que simule la DMZ de la red universitaria.
 - Versionar el proyecto completo en un repositorio Git con commits atómicos y organizados por responsabilidad.
 
 ---
@@ -29,54 +29,61 @@ Desarrollar un ecosistema de software seguro, contenerizado y versionado que per
 
 ### 3.1 Arquitectura General
 
-El ecosistema está compuesto por cinco servicios principales, todos desplegados dentro de un clúster Kubernetes (Minikube) en un namespace aislado denominado `inventario-seguro`:
+La solución definitiva se basa en una **arquitectura híbrida** distribuida en **4 Máquinas Virtuales (VMs) independientes** para emular un entorno de red institucional real:
 
-| Servicio | Tecnología | Puerto | Función |
+| Máquina Virtual | Tecnologías Principales | Responsabilidades / Función | Relación con el Clúster |
 |---|---|---|---|
-| `inventario-web` | Spring Boot (Frontend + API REST) | 8080 (HTTP) | Interfaz gráfica y capa de negocio |
-| `ubicacion-db` | SQL Server | 1433 (JDBC) | Datos de ubicación y asignación |
-| `inventario-db` | MongoDB | 27017 (Mongo Wire) | Datos de hardware de cada equipo |
-| `ldap-service` | OpenLDAP / Active Directory | 389 (LDAP) / 636 (LDAPS) | Autenticación institucional |
-| Firewall / DMZ | GUFW / pfSense | — | Perímetro de seguridad perimetral |
+| **VM 1: Firewall** | Ubuntu Server, GUFW/UFW (o pfSense como alternativa) | Firewall perimetral, filtrado inicial de tráfico, simulación de DMZ institucional y punto de entrada seguro hacia Kubernetes. | **NO** forma parte del clúster. |
+| **VM 2: Windows Server** | Active Directory, LDAP / LDAPS, DNS | Autenticación centralizada, gestión de usuarios/grupos institucionales y resolución de nombres (DNS) interna (ej: `dc01.itu.local`, `sql01.itu.local`, `inventario.itu.local`). | **NO** forma parte del clúster. |
+| **VM 3: SQL Server** | Microsoft SQL Server | Base de datos relacional para la gestión de ubicaciones y asignaciones físicas de equipos. | **NO** forma parte del clúster. |
+| **VM 4: Kubernetes** | Minikube, Calico CNI, Ingress NGINX | Hospedar únicamente componentes de aplicación contenerizados. | **Clúster Kubernetes**. |
 
-El tráfico externo proveniente del usuario institucional ingresa vía HTTPS al perímetro (Firewall/DMZ), que filtra y reenvía las solicitudes legítimas al **Ingress Controller** del clúster Kubernetes. Desde allí, el tráfico se dirige exclusivamente al frontend (`inventario-web`), que es el único servicio con acceso a la capa de datos.
+Dentro del clúster Kubernetes (VM 4), en un namespace aislado denominado `inventario-seguro`, residen únicamente los siguientes elementos de aplicación:
+- **`inventario-web`**: Aplicación monolítica en Spring Boot que empaqueta e integra el backend REST, la seguridad JWT, la comunicación LDAP y el frontend React compiled y servido desde `src/main/resources/static`. Se despliega como un único Deployment y un único Service.
+- **MongoDB**: Base documental para las especificaciones de hardware. Permanece contenerizada con almacenamiento persistente vía PersistentVolumeClaims.
+- **Ingress NGINX**: Punto único de entrada al clúster para resolver el host `inventario.itu.local` y redirigir las peticiones al servicio `inventario-web`.
 
 ### 3.2 Diagrama de Topología del Sistema
 
 ```mermaid
 graph TD
     U([Usuario Institucional])
-    FW["Perímetro Zero-Trust\nFirewall / DMZ\n(GUFW · pfSense)"]
-    IC["Ingress Controller\n(Kubernetes)"]
 
-    subgraph NS["Namespace: inventario-seguro"]
-        FE["inventario-web\nSpring Boot · Frontend + API"]
-        
-        subgraph DATA["Capa de Datos"]
-            SQL["ubicacion-db\nSQL Server\n:1433"]
-            MONGO["inventario-db\nMongoDB\n:27017"]
-        end
-        
-        LDAP["ldap-service\nActive Directory / LDAP\n:389 / :636"]
+    subgraph VM1["VM 1: Firewall (UFW / GUFW)"]
+        FW["Firewall Perimetral\n(Simulación DMZ)"]
     end
 
-    subgraph PV["Persistencia (PersistentVolumes)"]
-        PV1[PVC sqlserver-data]
-        PV2[PVC mongodb-data]
-        PV3[PVC ldap-data]
+    subgraph VM2["VM 2: Windows Server"]
+        AD["Active Directory / LDAP\n(Puertos :389 / :636)"]
+        DNS["DNS Server\n(Resolución interna)"]
+    end
+
+    subgraph VM3["VM 3: SQL Server"]
+        SQL["SQL Server\n(Puerto :1433)"]
+    end
+
+    subgraph VM4["VM 4: Kubernetes (Minikube + Calico)"]
+        IC["Ingress Controller\n(inventario.itu.local)"]
+        
+        subgraph NS["Namespace: inventario-seguro"]
+            FE["inventario-web\n(Spring Boot + React)"]
+            MONGO["inventario-db\n(MongoDB :27017)"]
+        end
+
+        subgraph PV["Persistencia"]
+            PV2[PVC mongodb-data]
+        end
     end
 
     U -- "HTTPS" --> FW
-    FW -- "HTTP" --> IC
+    FW -- "HTTPS" --> IC
     IC --> FE
 
+    FE -- "LDAP/LDAPS" --> AD
+    FE -- "DNS query" --> DNS
     FE -- "JDBC :1433" --> SQL
     FE -- "Mongo Wire :27017" --> MONGO
-    FE -- "LDAP/LDAPS :389/636" --> LDAP
-
-    SQL -.-> PV1
     MONGO -.-> PV2
-    LDAP -.-> PV3
 ```
 
 ---
@@ -85,7 +92,7 @@ graph TD
 
 ### 4.1 Base de Datos SQL Server — `ubicacion-db`
 
-Esta base de datos almacena la información de **ubicación física** de cada máquina y su **asignación a personas** (docentes, alumnos, técnicos responsables).
+Esta base de datos, alojada de manera externa en la **VM 3 (SQL Server)** (fuera del clúster Kubernetes), almacena la información de **ubicación física** de cada máquina y su **asignación a personas** (docentes, alumnos, técnicos responsables).
 
 #### 4.1.1 Diagrama de Clases (Modelo Relacional)
 
@@ -271,51 +278,94 @@ flowchart TD
 
 ### 6.1 Modelo Zero-Trust con NetworkPolicies de Kubernetes
 
-El clúster implementa un modelo de **denegación por defecto**: todo el tráfico dentro del namespace `inventario-seguro` está bloqueado salvo que sea explícitamente permitido por una NetworkPolicy. Las reglas definidas son:
+El clúster implementa un modelo de **denegación por defecto** (`default-deny-all`) dentro del namespace `inventario-seguro`: todo el tráfico interno y externo de los pods está bloqueado salvo que sea explícitamente permitido por una NetworkPolicy. Las políticas de red implementadas son:
+
+1. **`default-deny-all`**: Bloquea todo el tráfico (ingress/egress) de forma predeterminada para todos los pods en el namespace.
+2. **`allow-ingress-to-web`**: Permite tráfico entrante únicamente desde el Ingress Controller hacia el pod de `inventario-web` en el puerto 8080.
+3. **`allow-web-to-mongodb`**: Permite tráfico de salida desde `inventario-web` y de entrada hacia `mongodb` en el puerto 27017.
+4. **`allow-web-to-external-services`**: Permite tráfico de salida desde el pod `inventario-web` hacia el exterior del clúster para consumir los servicios alojados en las VMs externas (DNS, LDAP/LDAPS y SQL Server).
 
 ```mermaid
-graph LR
-    EXT([Tráfico externo\nInternet/Intranet])
-    IC["Ingress Controller"]
-    FE["inventario-web\n(Frontend + API)"]
-    SQL["ubicacion-db\nSQL Server :1433"]
-    MONGO["inventario-db\nMongoDB :27017"]
-    LDAP["ldap-service\nLDAP :389/:636"]
+graph TD
+    EXT([Usuario / Tráfico Externo])
+    
+    subgraph VM1["VM 1: Firewall perimetral"]
+        FW["Firewall (UFW/pfSense)\nFiltra tráfico HTTPS"]
+    end
 
-    EXT -- "HTTPS (permitido\npor Firewall/pfSense)" --> IC
-    IC -- "HTTP :8080\n✅ Permitido" --> FE
-    FE -- "JDBC :1433\n✅ Permitido" --> SQL
-    FE -- "Wire :27017\n✅ Permitido" --> MONGO
-    FE -- "LDAP :389\n✅ Permitido" --> LDAP
+    subgraph VM4["VM 4: Kubernetes"]
+        IC["Ingress Controller"]
+        
+        subgraph NS["Namespace: inventario-seguro"]
+            FE["inventario-web\n(Spring Boot)"]
+            MONGO["inventario-db\n(MongoDB :27017)"]
+        end
+    end
 
-    SQL -. "❌ Denegado\n(no puede iniciar\ncomunicación)" .-> FE
-    MONGO -. "❌ Denegado" .-> FE
-    SQL -. "❌ Denegado" .-> MONGO
-    LDAP -. "❌ Denegado\nhacia DBs" .-> SQL
+    subgraph VMExt["Servicios Externos (VM 2 & VM 3)"]
+        DNS["DNS Server\n(:53 TCP/UDP)"]
+        LDAP["Active Directory / LDAP\n(:389 / :636)"]
+        SQL["SQL Server\n(:1433)"]
+    end
+
+    EXT -- "HTTPS" --> FW
+    FW -- "HTTPS" --> IC
+    IC -- "Port 8080\n✅ allow-ingress-to-web" --> FE
+    FE -- "Port 27017\n✅ allow-web-to-mongodb" --> MONGO
+    
+    %% Tráfico saliente a VMs externas
+    FE -- "Port 53\n✅ allow-web-to-external-services" --> DNS
+    FE -- "Ports 389/636\n✅ allow-web-to-external-services" --> LDAP
+    FE -- "Port 1433\n✅ allow-web-to-external-services" --> SQL
+
+    %% Denegaciones internas
+    MONGO -. "❌ Bloqueado por default-deny" .-> FE
+    IC -. "❌ Bloqueado directo a DB" .-> MONGO
 ```
 
 ### 6.2 Reglas de Red Resumidas
 
-| Origen | Destino | Puerto | Acción |
-|---|---|---|---|
-| Ingress Controller | `inventario-web` | 8080 | ✅ Permitido |
-| `inventario-web` | `ubicacion-db` | 1433 | ✅ Permitido |
-| `inventario-web` | `inventario-db` | 27017 | ✅ Permitido |
-| `inventario-web` | `ldap-service` | 389 / 636 | ✅ Permitido |
-| Cualquier otro pod | `ubicacion-db` | 1433 | ❌ Denegado |
-| Cualquier otro pod | `inventario-db` | 27017 | ❌ Denegado |
-| Cualquier otro pod | `ldap-service` | 389/636 | ❌ Denegado |
-| Tráfico sin autorización de DMZ | Ingress | — | ❌ Denegado (Firewall) |
+| Origen | Destino | Puerto | NetworkPolicy / Mecanismo | Acción |
+|---|---|---|---|---|
+| Ingress Controller | `inventario-web` | 8080 | `allow-ingress-to-web` | ✅ Permitido |
+| `inventario-web` | `inventario-db` (MongoDB) | 27017 | `allow-web-to-mongodb` | ✅ Permitido |
+| `inventario-web` | DNS (VM 2) | 53 (TCP/UDP) | `allow-web-to-external-services` | ✅ Permitido |
+| `inventario-web` | LDAP / LDAPS (VM 2) | 389 / 636 | `allow-web-to-external-services` | ✅ Permitido |
+| `inventario-web` | SQL Server (VM 3) | 1433 | `allow-web-to-external-services` | ✅ Permitido |
+| Cualquier pod | Cualquier destino interno/externo | Todos | `default-deny-all` | ❌ Denegado |
 
-### 6.3 Simulación Perimetral
+### 6.3 Autenticación y Autorización con Active Directory (VM 2)
 
-Se utiliza **GUFW** (interfaz gráfica de UFW) para simular el comportamiento del firewall perimetral universitario. Las reglas configuradas permiten únicamente tráfico HTTPS entrante hacia la IP asignada por Minikube, emulando el NAT del pfSense institucional. Todo tráfico no explícitamente autorizado es bloqueado en esta capa antes de alcanzar el clúster.
+Active Directory/LDAP **no está desplegado dentro de Kubernetes**. Se ejecuta de manera externa en la **VM 2 (Windows Server)**.
+- El backend (`inventario-web` en Spring Boot) consume el servicio LDAP/LDAPS externo a través de la red simulada.
+- Durante el proceso de autenticación, Spring Security obtiene los grupos de Active Directory a los que pertenece el usuario autenticado.
+- Estos grupos institucionales se mapean en memoria a roles internos de la aplicación para determinar el nivel de acceso en la UI y la API REST:
+  
+| Grupo en Active Directory | Rol Interno Spring Security | Permisos asignados |
+|---|---|---|
+| `Grupo_BD_Laboratorio_A` | `ROLE_ADMIN` | Acceso total (lectura, escritura, edición y eliminación). |
+| `Grupo_BD_Laboratorio_C` | `ROLE_EDITOR` | Lectura, creación y edición de datos de inventario. Sin permisos de eliminación. |
+| `Grupo_BD_Laboratorio_R` | `ROLE_READONLY` | Acceso de solo lectura al panel y búsquedas. |
+
+### 6.4 Seguridad y Acceso a MongoDB
+
+A diferencia de la autenticación de usuarios, la base documental MongoDB (que reside contenerizada en Kubernetes) **no utiliza autenticación basada en usuarios LDAP**.
+- El backend (`inventario-web`) se conecta a MongoDB mediante una **cuenta técnica** o credenciales administrativas exclusivas de la base de datos (almacenadas de forma segura en un Secret de Kubernetes).
+- La autorización para interactuar con las colecciones de hardware se delega exclusivamente a la lógica del backend mediante **Spring Security**, asegurando que los usuarios solo puedan operar con MongoDB si poseen los roles de aplicación correspondientes (`ROLE_ADMIN` o `ROLE_EDITOR`).
+
+### 6.5 Simulación Perimetral (VM 1 - Firewall)
+
+El perímetro de seguridad se simula utilizando una máquina virtual dedicada (**VM 1 - Firewall**) corriendo **Ubuntu Server** con **GUFW/UFW** (o alternativamente **pfSense**).
+- Este firewall perimetral actúa como el único punto de contacto con el exterior (simulación de DMZ institucional).
+- Filtra el tráfico inicial permitiendo exclusivamente peticiones HTTPS entrantes y redirige de manera segura las solicitudes legítimas hacia el Ingress Controller de Kubernetes en la VM 4. Todo tráfico no autorizado explícitamente en el firewall es rechazado inmediatamente.
 
 ---
 
 ## 7. Infraestructura y Despliegue
 
 ### 7.1 Estructura de Manifiestos Kubernetes
+
+Dentro del namespace `inventario-seguro` del clúster Kubernetes, se configuran únicamente los recursos indispensables para la aplicación y la base documental:
 
 ```mermaid
 graph TD
@@ -324,38 +374,46 @@ graph TD
     K8S --> NS["Namespace:\ninventario-seguro"]
     
     NS --> DEP1["Deployment:\ninventario-web"]
-    NS --> DEP2["Deployment:\nubicacion-db"]
-    NS --> DEP3["Deployment:\ninventario-db"]
-    NS --> DEP4["Deployment:\nldap-service"]
+    NS --> DEP3["Deployment:\nmongodb"]
 
-    NS --> SVC1["Service:\ninventario-web\n(NodePort/LoadBalancer)"]
-    NS --> SVC2["Service:\nubicacion-db\n(ClusterIP)"]
-    NS --> SVC3["Service:\ninventario-db\n(ClusterIP)"]
-    NS --> SVC4["Service:\nldap-service\n(ClusterIP)"]
+    NS --> SVC1["Service:\ninventario-web\n(ClusterIP/NodePort)"]
+    NS --> SVC3["Service:\nmongodb\n(ClusterIP)"]
+
+    NS --> ING["Ingress:\ninventario-ingress\n(Host: inventario.itu.local)"]
 
     NS --> NP1["NetworkPolicy:\ndefault-deny-all"]
-    NS --> NP2["NetworkPolicy:\nallow-frontend-egress"]
-    NS --> NP3["NetworkPolicy:\nallow-db-from-frontend"]
-    NS --> NP4["NetworkPolicy:\nallow-ldap-from-frontend"]
+    NS --> NP2["NetworkPolicy:\nallow-ingress-to-web"]
+    NS --> NP3["NetworkPolicy:\nallow-web-to-mongodb"]
+    NS --> NP4["NetworkPolicy:\nallow-web-to-external-services"]
 
-    NS --> PVC1["PVC: sqlserver-data"]
     NS --> PVC2["PVC: mongodb-data"]
-    NS --> PVC3["PVC: ldap-data"]
 
     NS --> CM1["ConfigMap:\napp-config"]
-    NS --> SEC1["Secret:\ndb-credentials"]
-    NS --> SEC2["Secret:\nldap-credentials"]
+    NS --> SEC1["Secret:\nldap-secret"]
+    NS --> SEC2["Secret:\nsql-secret"]
+    NS --> SEC3["Secret:\nmongo-secret"]
+    NS --> SEC4["Secret:\njwt-secret"]
 ```
 
 ### 7.2 Consideraciones de Despliegue
 
-- El clúster debe iniciarse con Calico como CNI para que las NetworkPolicies tengan efecto efectivo:
+- **CNI con Calico**: El clúster Minikube debe iniciarse obligatoriamente con el plugin Calico como CNI para que las políticas de red (`NetworkPolicies`) tengan efecto efectivo de bloqueo y filtrado:
   `minikube start --cni=calico`
-- Los PersistentVolumeClaims garantizan la persistencia de datos de las bases de datos y del directorio LDAP ante reinicios de los pods.
-- Las credenciales de acceso a las bases de datos y al servidor LDAP se gestionan mediante **Secrets de Kubernetes**, nunca como variables de entorno en texto plano dentro de los Deployments.
-- El frontend (`inventario-web`) es el único servicio expuesto externamente mediante un Service de tipo `NodePort` o a través del Ingress Controller.
-- **SQL Server (`ubicacion-db`)** corre en una **máquina virtual dedicada**, fuera del clúster y fuera de Docker Compose de producción. El backend se conecta mediante `DB_URL` (ver sección 11.8).
-- Para desarrollo y pruebas locales, SQL Server puede levantarse temporalmente con `docker-compose.dev.yml`; en producción solo se dockerizan frontend, backend y MongoDB (`docker-compose.yml`).
+- **Persistencia**: El PersistentVolumeClaim `mongodb-data` garantiza la persistencia de los datos documentales del hardware almacenados en MongoDB ante reinicios de los pods.
+- **Gestión de Secretos**: Los datos sensibles de acceso (como credenciales de base de datos SQL Server, credenciales de LDAP, contraseñas de MongoDB y claves de firma JWT) se administran exclusivamente mediante **Secrets de Kubernetes** (`ldap-secret`, `sql-secret`, `mongo-secret`, `jwt-secret`), evitando el uso de variables de entorno expuestas en texto plano.
+- **Exposición Externa**: La aplicación unificada `inventario-web` se expone externamente a través de un objeto **Ingress NGINX** configurado bajo el host `inventario.itu.local`. Todo el tráfico externo pasa primero por el Firewall perimetral (VM 1) antes de ingresar al Ingress Controller.
+- **Conectividad a Servicios Externos**: El pod `inventario-web` utiliza el servidor DNS interno de la VM 2 (`dc01.itu.local`) para resolver los nombres de red de la VM de base de datos (`sql01.itu.local`) y de identidad.
+
+### 7.3 Flujo de Integración y Despliegue Continuo (CI/CD)
+
+La infraestructura base del ecosistema (el Firewall perimetral, la máquina virtual de Active Directory/DNS y la base de datos SQL Server) se considera **preexistente** y de administración independiente, por lo que su configuración o aprovisionamiento no forma parte de los procesos automáticos.
+
+El pipeline automatizado mediante **GitHub Actions** se enfoca exclusivamente en la entrega de la capa de aplicación:
+1. **Compilación del Frontend**: Build de la interfaz React y copia de los archivos estáticos generados al directorio `src/main/resources/static` del backend.
+2. **Compilación del Backend**: Compilación de la aplicación de Spring Boot en conjunto con sus dependencias y ejecución de tests unitarios y de integración.
+3. **Construcción de Imágenes**: Generación de la imagen de producción Docker para la aplicación unificada `inventario-web`.
+4. **Publicación**: Envío de la imagen generada al registro de contenedores (Docker Hub o GitHub Packages).
+5. **Despliegue automático (CD)**: Aplicación de los manifiestos actualizados en el clúster de Kubernetes para actualizar el Deployment `inventario-web` en caliente.
 
 ---
 
@@ -381,17 +439,21 @@ El proyecto debe versionarse en un repositorio Git unificado con la siguiente es
 │   ├── namespace.yaml
 │   ├── deployments/
 │   │   ├── inventario-web.yaml
-│   │   ├── ubicacion-db.yaml
-│   │   ├── inventario-db.yaml
-│   │   └── ldap-service.yaml
+│   │   └── mongodb.yaml
 │   ├── services/
-│   │   └── *.yaml
+│   │   ├── inventario-web.yaml
+│   │   └── mongodb.yaml
+│   ├── ingress/
+│   │   └── inventario-ingress.yaml
 │   ├── network-policies/
 │   │   ├── default-deny-all.yaml
-│   │   ├── allow-frontend.yaml
-│   │   └── allow-db-from-frontend.yaml
+│   │   ├── allow-ingress-to-web.yaml
+│   │   ├── allow-web-to-mongodb.yaml
+│   │   └── allow-web-to-external-services.yaml
+│   ├── secrets/
+│   │   └── secrets.yaml
 │   └── storage/
-│       └── pvc.yaml
+│       └── mongodb-pvc.yaml
 ├── app/
 │   ├── inventario-web/
 │   │   ├── Dockerfile          # Backend Spring Boot (multi-stage)
