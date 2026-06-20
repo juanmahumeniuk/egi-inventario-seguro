@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: egi-backend
+  namespace: egi-inventario
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: egi-backend
+  template:
+    metadata:
+      labels:
+        app: egi-backend
+    spec:
+      containers:
+      - name: backend
+        # Se asume que la imagen se cargará a minikube: minikube image load egi-backend:latest
+        image: egi-backend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: egi-config
+        - secretRef:
+            name: egi-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egi-backend
+  namespace: egi-inventario
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app: egi-backend
