@@ -1,4 +1,8 @@
 spring:
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+
   application:
     name: inventario-seguro
 
@@ -29,21 +33,21 @@ spring:
     property-naming-strategy: SNAKE_CASE
 
   ldap:
-    urls: ${LDAP_URLS:ldap://localhost:389}
-    base: ${LDAP_BASE:dc=itu,dc=local}
-    username: ${LDAP_BIND_DN:cn=admin,dc=itu,dc=local}
-    password: ${LDAP_BIND_PASSWORD:adminpassword}
+    urls: ldap://192.168.56.102:389
+    base: dc=itu,dc=local
+    username: cn=Administrador,cn=Users,dc=itu,dc=local
+    password: Itu12345!
 
 app:
   security:
     jwt:
-      secret: ${JWT_SECRET:SecretKeyForEGIIinventarioSeguroNeedsToBeAtLeast32BytesLongSecretKeyForEGIIinventarioSeguroNeedsToBeAtLeast32BytesLong}
-      expiration-ms: ${JWT_EXPIRATION_MS:86400000}
-    ldap:
-      user-search-base: ${LDAP_USER_SEARCH_BASE:ou=Users}
-      user-search-filter: ${LDAP_USER_SEARCH_FILTER:(sAMAccountName={0})}
-      group-search-base: ${LDAP_GROUP_SEARCH_BASE:ou=Groups,ou=Laboratorios,ou=ITU}
-      group-search-filter: ${LDAP_GROUP_SEARCH_FILTER:(member={0})}
+      secret: SecretKeyForEGIIinventarioSeguroNeedsToBeAtLeast32BytesLongSecretKeyForEGIIinventarioSeguroNeedsToBeAtLeast32BytesLong
+      expiration-ms: 86400000
+  ldap:
+    user-search-base: OU=Users,OU=ITU
+    user-search-filter: (sAMAccountName={0})
+    group-search-base: OU=Laboratorios,OU=Groups,OU=ITU
+    group-search-filter: (member={0})
 
 server:
   port: 8080
