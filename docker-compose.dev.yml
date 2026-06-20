@@ -18,6 +18,16 @@ services:
       retries: 10
       start_period: 30s
 
+  sqlserver-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    volumes:
+      - ./docker/sqlserver/init.sql:/init.sql:ro
+    entrypoint: ["/opt/mssql-tools18/bin/sqlcmd", "-S", "sqlserver", "-U", "sa", "-P", "EGI_Password123!", "-C", "-i", "/init.sql"]
+    restart: "no"
+
   mongodb:
     image: mongo:7
     container_name: egi-mongodb

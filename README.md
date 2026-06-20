@@ -137,6 +137,67 @@ mvn spring-boot:run -Dspring-boot.run.jvmArguments="-DDB_PASSWORD=EGI_Password12
 # 5. La API queda disponible en http://localhost:8080/api
 ```
 
+---
+
+## Despliegue con Docker
+
+Levanta **frontend**, **backend** y **MongoDB**. SQL Server corre en una **VM externa** (no dockerizada).
+
+```bash
+cp .env.example .env
+# Editar .env: DB_URL, DB_PASSWORD y URLs públicas del frontend/API
+docker compose up --build -d
+```
+
+| Servicio | Dónde corre | URL (ejemplo local) |
+|----------|-------------|---------------------|
+| Frontend | Contenedor Docker | http://localhost:3000 |
+| Backend  | Contenedor Docker | http://localhost:8080/api |
+| MongoDB  | Contenedor Docker | red interna (`mongodb:27017`) |
+| SQL Server | **VM externa** | configurado en `DB_URL` del `.env` |
+
+### Preparar la VM de SQL Server
+
+1. Instalar SQL Server en la VM y abrir el puerto **1433** hacia el host donde corre Docker.
+2. Crear la base de datos (una sola vez):
+
+```bash
+sqlcmd -S localhost -U sa -P '<password>' -C -i migraciones/sql/V0__create_database.sql
+```
+
+3. Configurar en `.env` la conexión hacia la VM:
+
+```env
+DB_URL=jdbc:sqlserver://<ip-o-hostname-vm>:1433;databaseName=inventario_egi;encrypt=true;trustServerCertificate=true
+DB_USER=sa
+DB_PASSWORD=<password>
+```
+
+Flyway aplica las migraciones V1–V4 al arrancar el backend.
+
+Documentación detallada en [`docs/Informe_EGI_Inventario.md`](docs/Informe_EGI_Inventario.md) (secciones 11.7 y 11.8).
+
+### Desarrollo local con SQL Server en Docker
+
+Para probar sin VM externa, levanta SQL Server con el compose de desarrollo y apunta el backend al host:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+cp .env.example .env
+# En .env, usar:
+# DB_URL=jdbc:sqlserver://host.docker.internal:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true
+# DB_PASSWORD=EGI_Password123!
+docker compose up --build -d
+```
+
+### Seed de MongoDB (opcional)
+
+Tras el primer arranque, puedes cargar documentos de ejemplo:
+
+```bash
+docker compose exec -T mongodb mongosh inventario_egi --quiet < migraciones/mongodb/V3__seed_maquina_documents.js
+```
+
 ### Endpoints disponibles
 
 | Método | Ruta | Descripción |
@@ -185,7 +246,8 @@ mvn spring-boot:run -Dspring-boot.run.jvmArguments="-DDB_PASSWORD=EGI_Password12
 | Recurso | Descripción |
 |---------|-------------|
 | [`Proyecto Integrador EGI.md`](./Proyecto%20Integrador%20EGI.md) | Enunciado y requisitos del proyecto |
-| [`docs/Informe_EGI_Inventario.md`](./docs/Informe_EGI_Inventario.md) | Informe técnico completo: arquitectura, modelo de datos, backend, seguridad |
+| [`docs/Informe_EGI_Inventario.md`](./docs/Informe_EGI_Inventario.md) | Informe técnico completo: arquitectura, modelo de datos, backend, despliegue Docker (§11.7–11.8), seguridad |
+| [`.env.example`](./.env.example) | Plantilla de variables para `docker compose up` |
 | `docs/` | Diagramas de topología, clases y flujo de la aplicación |
 
 ---
