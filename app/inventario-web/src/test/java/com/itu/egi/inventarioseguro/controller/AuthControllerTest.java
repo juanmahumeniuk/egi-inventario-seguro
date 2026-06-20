@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -43,7 +44,7 @@ class AuthControllerTest {
                                 .thenReturn(Set.of("Grupo_BD_Laboratorio_A"));
                 when(roleMapper.mapGroupsToRoles(anyCollection()))
                                 .thenReturn(Set.of("ROLE_ADMIN"));
-                when(jwtService.generateToken(anyString(), anyCollection()))
+                when(jwtService.generateToken(anyString(), anySet()))
                                 .thenReturn("mock-real-jwt");
 
                 mockMvc.perform(post("/api/auth/login")
@@ -61,7 +62,7 @@ class AuthControllerTest {
                                 .thenReturn(Set.of("Grupo_BD_Laboratorio_R"));
                 when(roleMapper.mapGroupsToRoles(anyCollection()))
                                 .thenReturn(Set.of("ROLE_READONLY"));
-                when(jwtService.generateToken(anyString(), anyCollection()))
+                when(jwtService.generateToken(anyString(), anySet()))
                                 .thenReturn("mock-real-jwt-user");
 
                 mockMvc.perform(post("/api/auth/login")
