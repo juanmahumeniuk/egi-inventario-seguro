@@ -354,6 +354,8 @@ graph TD
 - Los PersistentVolumeClaims garantizan la persistencia de datos de las bases de datos y del directorio LDAP ante reinicios de los pods.
 - Las credenciales de acceso a las bases de datos y al servidor LDAP se gestionan mediante **Secrets de Kubernetes**, nunca como variables de entorno en texto plano dentro de los Deployments.
 - El frontend (`inventario-web`) es el único servicio expuesto externamente mediante un Service de tipo `NodePort` o a través del Ingress Controller.
+- **SQL Server (`ubicacion-db`)** corre en una **máquina virtual dedicada**, fuera del clúster y fuera de Docker Compose de producción. El backend se conecta mediante `DB_URL` (ver sección 11.8).
+- Para desarrollo y pruebas locales, SQL Server puede levantarse temporalmente con `docker-compose.dev.yml`; en producción solo se dockerizan frontend, backend y MongoDB (`docker-compose.yml`).
 
 ---
 
@@ -364,6 +366,12 @@ El proyecto debe versionarse en un repositorio Git unificado con la siguiente es
 ```
 /
 ├── README.md
+├── .env.example              # Plantilla de variables para docker compose (producción)
+├── docker-compose.yml          # Frontend + backend + MongoDB (SQL Server en VM externa)
+├── docker-compose.dev.yml      # SQL Server + MongoDB para desarrollo local
+├── docker/
+│   └── sqlserver/
+│       └── init.sql            # Creación de BD para compose de desarrollo
 ├── docs/
 │   ├── arquitectura.md
 │   ├── diagrama_clases.png
@@ -386,13 +394,15 @@ El proyecto debe versionarse en un repositorio Git unificado con la siguiente es
 │       └── pvc.yaml
 ├── app/
 │   ├── inventario-web/
-│   │   ├── Dockerfile
+│   │   ├── Dockerfile          # Backend Spring Boot (multi-stage)
+│   │   ├── frontend/
+│   │   │   ├── Dockerfile      # Frontend React (nginx)
+│   │   │   └── src/
 │   │   └── src/
-├── db/
+├── migraciones/
 │   ├── sql/
-│   │   └── create_schema.sql
-│   └── mongo/
-│       └── seed_data.json
+│   │   └── V0__create_database.sql  # Script para VM de SQL Server
+│   └── mongodb/
 └── firewall/
     └── reglas_gufw.md
 ```
@@ -569,26 +579,110 @@ public class DataSourceConfig {
 
 El ajuste `SessionSynchronization.NEVER` es necesario para que Spring Data MongoDB no intente enlazar sus operaciones de escritura al ciclo de vida de las transacciones JPA activas (que gestionan SQL Server), lo que de otro modo causaría que las escrituras a MongoDB se descarten silenciosamente.
 
-### 11.7 Entorno de desarrollo local
+### 11.7 Entornos Docker
 
-Para el desarrollo local se provee el archivo `docker-compose.dev.yml` en la raíz del repositorio, que levanta:
+El repositorio incluye dos archivos Compose con propósitos distintos:
+
+#### Desarrollo local — `docker-compose.dev.yml`
+
+Levanta **solo las bases de datos** para trabajar con el backend y el frontend fuera de contenedores (IDE, `mvn spring-boot:run`, `npm run dev`):
 
 | Servicio | Imagen | Puerto host | Credenciales |
 |---|---|---|---|
 | SQL Server 2022 | `mcr.microsoft.com/mssql/server:2022-latest` | 1433 | sa / `EGI_Password123!` |
 | MongoDB 7 | `mongo:7` | **27018** | Sin autenticación |
 
-MongoDB se expone en el **puerto 27018** (no 27017) para evitar conflictos con instalaciones locales del servicio MongoDB en Windows.
+Incluye un job `sqlserver-init` que ejecuta `docker/sqlserver/init.sql` para crear la base `inventario_egi` en el primer arranque.
+
+MongoDB se expone en el **puerto 27018** (no 27017) para evitar conflictos con instalaciones locales del servicio MongoDB.
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+#### Despliegue — `docker-compose.yml`
+
+Levanta **frontend**, **backend** y **MongoDB** con builds de producción (nginx + JAR). **SQL Server no se dockeriza**: corre en una **VM externa** y el backend se conecta mediante variables de entorno.
+
+| Servicio | Dónde corre | Puerto (ejemplo) |
+|---|---|---|
+| Frontend (nginx) | Contenedor Docker | 3000 → 80 |
+| Backend (Spring Boot) | Contenedor Docker | 8080 |
+| MongoDB | Contenedor Docker | red interna `mongodb:27017` |
+| SQL Server | **VM externa** | 1433 (configurado en `DB_URL`) |
+
+```bash
+cp .env.example .env
+# Editar .env con la IP/hostname de la VM de SQL Server
+docker compose up --build -d
+```
+
+##### Preparar la VM de SQL Server
+
+1. Instalar SQL Server en la VM y abrir el puerto **1433** hacia el host donde corre Docker.
+2. Crear la base de datos (una sola vez):
+
+```bash
+sqlcmd -S localhost -U sa -P '<password>' -C -i migraciones/sql/V0__create_database.sql
+```
+
+3. Configurar la conexión en `.env` (ver sección 11.8).
+
+Flyway aplica las migraciones V1–V4 automáticamente al arrancar el backend.
+
+##### Probar el compose de producción sin VM externa
+
+Para desarrollo integrado, levantar SQL Server con el compose de desarrollo y apuntar el backend al host:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+cp .env.example .env
+# En .env:
+# DB_URL=jdbc:sqlserver://host.docker.internal:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true
+# DB_PASSWORD=EGI_Password123!
+docker compose up --build -d
+```
+
+##### Seed de MongoDB (opcional)
+
+```bash
+docker compose exec -T mongodb mongosh inventario_egi --quiet < migraciones/mongodb/V3__seed_maquina_documents.js
+```
 
 ### 11.8 Configuración de entorno
 
-La aplicación se configura mediante variables de entorno para no hardcodear credenciales:
+La aplicación se configura mediante variables de entorno para no hardcodear credenciales. El archivo `.env.example` en la raíz del repositorio documenta todas las variables del despliegue Docker; copiarlo a `.env` antes de `docker compose up`.
+
+#### Backend (Spring Boot)
 
 | Variable | Valor por defecto | Descripción |
 |---|---|---|
+| `DB_URL` | `jdbc:sqlserver://localhost:1433;databaseName=inventario_egi;...` | URL JDBC completa hacia SQL Server. En producción apunta a la VM externa |
 | `DB_USER` | `sa` | Usuario SQL Server |
 | `DB_PASSWORD` | `sa` | Contraseña SQL Server |
-| `MONGO_URI` | `mongodb://localhost:27018/inventario_egi` | URI de conexión MongoDB (el `docker-compose.dev.yml` expone MongoDB en el **puerto 27018** para evitar conflictos con instalaciones locales) |
+| `MONGO_URI` | `mongodb://localhost:27018/inventario_egi` | URI MongoDB. En Docker: `mongodb://mongodb:27017/inventario_egi` |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Orígenes permitidos para CORS (URL pública del frontend) |
+
+En `application.yml`, la URL de SQL Server se resuelve desde `DB_URL`:
+
+```yaml
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:sqlserver://localhost:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true}
+    username: ${DB_USER:sa}
+    password: ${DB_PASSWORD:sa}
+```
+
+#### Frontend (build Docker)
+
+Estas variables se inyectan en **build time** mediante build args del `docker-compose.yml`:
+
+| Variable | Valor por defecto | Descripción |
+|---|---|---|
+| `VITE_API_URL` | `http://localhost:8080/api` | URL pública de la API (desde el navegador del usuario) |
+| `VITE_USE_MOCK` | `false` | Si es `true`, el frontend usa datos mock en localStorage sin backend |
+
+Para desarrollo local con Vite (`npm run dev`), las mismas variables se definen en `app/inventario-web/frontend/.env.local`.
 
 ---
 
@@ -617,7 +711,7 @@ El frontend implementa una capa de servicios en `src/services/` que abstrae la c
 
 ### 12.3 Modo Mock vs. Real
 
-El frontend soporta dos modos controlados por variables de entorno en `.env`:
+El frontend soporta dos modos controlados por variables de entorno:
 
 ```env
 # Modo real (conecta al backend Spring Boot)
@@ -627,6 +721,13 @@ VITE_USE_MOCK=false
 # Modo mock (datos en localStorage, sin backend)
 VITE_USE_MOCK=true
 ```
+
+| Archivo | Cuándo usarlo |
+|---|---|
+| `app/inventario-web/frontend/.env.local` | Desarrollo local con `npm run dev` |
+| `.env` (raíz del repo) | Despliegue con `docker compose up` (build args del frontend y env del backend) |
+
+Ver `.env.example` en la raíz del repositorio para la plantilla completa de despliegue.
 
 El modo mock simula con fidelidad el comportamiento del backend (transacciones SQL + MongoDB) usando `localStorage`, lo que permite desarrollar el frontend de forma independiente.
 
@@ -646,15 +747,20 @@ Credenciales por defecto para el login: `admin` / `admin123` (o cualquier usuari
 
 ### 13.1 CORS
 
-La clase `CorsConfig` (en `config/`) habilita CORS para que el frontend en `:3000` pueda comunicarse con el backend en `:8080`:
+La clase `CorsConfig` (en `config/`) habilita CORS para que el frontend pueda comunicarse con el backend. Los orígenes permitidos se configuran con la variable de entorno `CORS_ALLOWED_ORIGINS` (por defecto `http://localhost:3000`):
 
 ```java
+@Value("${CORS_ALLOWED_ORIGINS:http://localhost:3000}")
+private String[] allowedOrigins;
+
 registry.addMapping("/api/**")
-        .allowedOrigins("http://localhost:3000")
+        .allowedOrigins(allowedOrigins)
         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
         .allowedHeaders("*")
         .allowCredentials(true);
 ```
+
+En despliegue Docker, `CORS_ALLOWED_ORIGINS` debe coincidir con la URL pública desde la que se sirve el frontend.
 
 ### 13.2 Convención de naming JSON
 

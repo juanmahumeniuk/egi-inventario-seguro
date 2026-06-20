@@ -30,8 +30,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     try {
       const response = await authService.login(username, password);
       onLoginSuccess(response.username);
-    } catch (err: any) {
-      setError(err.message || 'Error de credenciales en LDAP.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Error de credenciales en LDAP.';
+      setError(message === 'Failed to fetch'
+        ? 'No se pudo conectar con el servidor. Verifica que el backend esté en ejecución.'
+        : message);
     } finally {
       setIsLoading(false);
     }
