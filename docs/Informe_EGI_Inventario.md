@@ -38,7 +38,7 @@ La solución definitiva se basa en una **arquitectura híbrida** distribuida en 
 | **VM 3: SQL Server** | Microsoft SQL Server | Base de datos relacional para la gestión de ubicaciones y asignaciones físicas de equipos. | **NO** forma parte del clúster. |
 | **VM 4: Kubernetes** | Minikube, Calico CNI, Ingress NGINX | Hospedar únicamente componentes de aplicación contenerizados. | **Clúster Kubernetes**. |
 
-Dentro del clúster Kubernetes (VM 4), en un namespace aislado denominado `inventario-seguro`, residen únicamente los siguientes elementos de aplicación:
+Dentro del clúster Kubernetes (VM 4), en un namespace aislado denominado `egi-inventario`, residen únicamente los siguientes elementos de aplicación:
 - **`inventario-web`**: Aplicación monolítica en Spring Boot que empaqueta e integra el backend REST, la seguridad JWT, la comunicación LDAP y el frontend React compiled y servido desde `src/main/resources/static`. Se despliega como un único Deployment y un único Service.
 - **MongoDB**: Base documental para las especificaciones de hardware. Permanece contenerizada con almacenamiento persistente vía PersistentVolumeClaims.
 - **Ingress NGINX**: Punto único de entrada al clúster para resolver el host `inventario.itu.local` y redirigir las peticiones al servicio `inventario-web`.
@@ -65,7 +65,7 @@ graph TD
     subgraph VM4["VM 4: Kubernetes (Minikube + Calico)"]
         IC["Ingress Controller\n(inventario.itu.local)"]
         
-        subgraph NS["Namespace: inventario-seguro"]
+        subgraph NS["Namespace: egi-inventario"]
             FE["inventario-web\n(Spring Boot + React)"]
             MONGO["inventario-db\n(MongoDB :27017)"]
         end
@@ -278,7 +278,7 @@ flowchart TD
 
 ### 6.1 Modelo Zero-Trust con NetworkPolicies de Kubernetes (Calico)
 
-El clúster implementa un modelo de **denegación por defecto** (`default-deny-all`) dentro del namespace `inventario-seguro`: todo el tráfico de los pods (entrante y saliente) está bloqueado salvo que sea explícitamente permitido por una NetworkPolicy.
+El clúster implementa un modelo de **denegación por defecto** (`default-deny-all`) dentro del namespace `egi-inventario`: todo el tráfico de los pods (entrante y saliente) está bloqueado salvo que sea explícitamente permitido por una NetworkPolicy.
 
 **Por qué Calico:** las NetworkPolicies son objetos estándar de la API de Kubernetes, pero **quien las hace cumplir es el plugin de red (CNI)**. El CNI por defecto de Minikube **no implementa NetworkPolicies**: si se aplican sin un CNI compatible, Kubernetes las acepta pero **no tienen ningún efecto** (el tráfico sigue pasando). Por eso el clúster se inicia obligatoriamente con **Calico** como CNI (`minikube start --cni=calico`), que sí evalúa y aplica las reglas, haciendo real el `default-deny`.
 
@@ -313,7 +313,7 @@ graph TD
     subgraph VM4["VM 4: Kubernetes"]
         IC["Ingress Controller"]
         
-        subgraph NS["Namespace: inventario-seguro"]
+        subgraph NS["Namespace: egi-inventario"]
             FE["inventario-web\n(Spring Boot)"]
             MONGO["inventario-db\n(MongoDB :27017)"]
         end
@@ -360,11 +360,11 @@ graph TD
    ```
 4. **Verificar** que las políticas estén activas y que el bloqueo funcione:
    ```bash
-   kubectl get networkpolicy -n inventario-seguro
+   kubectl get networkpolicy -n egi-inventario
    # Prueba negativa: una shell en un pod no autorizado NO debe alcanzar a mongodb
-   kubectl exec -n inventario-seguro <pod-no-web> -- nc -zv mongodb 27017   # debe fallar (timeout)
+   kubectl exec -n egi-inventario <pod-no-web> -- nc -zv mongodb 27017   # debe fallar (timeout)
    # Prueba positiva: el pod web SÍ debe alcanzar a mongodb
-   kubectl exec -n inventario-seguro <pod-web> -- nc -zv mongodb 27017      # debe conectar
+   kubectl exec -n egi-inventario <pod-web> -- nc -zv mongodb 27017      # debe conectar
    ```
 
 > Si las pruebas negativas **conectan** en lugar de fallar, es señal de que el CNI no está aplicando las políticas (típicamente porque el clúster no se inició con `--cni=calico`).
@@ -458,13 +458,13 @@ pfSense se configura con dos interfaces: **WAN** (exterior) y **LAN** (red inter
 
 ### 7.1 Estructura de Manifiestos Kubernetes
 
-Dentro del namespace `inventario-seguro` del clúster Kubernetes, se configuran únicamente los recursos indispensables para la aplicación y la base documental:
+Dentro del namespace `egi-inventario` del clúster Kubernetes, se configuran únicamente los recursos indispensables para la aplicación y la base documental:
 
 ```mermaid
 graph TD
     K8S["Clúster Minikube\n(CNI: Calico)"]
     
-    K8S --> NS["Namespace:\ninventario-seguro"]
+    K8S --> NS["Namespace:\negi-inventario"]
     
     NS --> DEP1["Deployment:\ninventario-web"]
     NS --> DEP3["Deployment:\nmongodb"]
