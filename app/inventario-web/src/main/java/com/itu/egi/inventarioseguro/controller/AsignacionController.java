@@ -5,6 +5,7 @@ import com.itu.egi.inventarioseguro.service.AsignacionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -15,12 +16,14 @@ public class AsignacionController {
     private final AsignacionService asignacionService;
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'EDITOR')")
     public ResponseEntity<Void> asignar(@Valid @RequestBody AsignacionRequest req) {
         asignacionService.asignar(req);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{personaId}/{maquinaId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'EDITOR')")
     public ResponseEntity<Void> desasignar(@PathVariable Long personaId, @PathVariable Long maquinaId) {
         asignacionService.desasignar(personaId, maquinaId);
         return ResponseEntity.noContent().build();
