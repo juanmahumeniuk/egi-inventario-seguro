@@ -13,14 +13,14 @@ spec:
   # SQL Server (VM 3)
   - to:
     - ipBlock:
-        cidr: 192.168.10.20/32
+        cidr: 192.168.1.20/32
     ports:
     - protocol: TCP
       port: 1433
   # Active Directory / LDAP (VM 2)
   - to:
     - ipBlock:
-        cidr: 192.168.10.10/32
+        cidr: 192.168.1.10/32
     ports:
     - protocol: TCP
       port: 389
@@ -29,7 +29,7 @@ spec:
   # DNS en VM 2
   - to:
     - ipBlock:
-        cidr: 192.168.10.10/32
+        cidr: 192.168.1.10/32
     ports:
     - protocol: UDP
       port: 53

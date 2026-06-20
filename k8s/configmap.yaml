@@ -8,7 +8,7 @@ data:
   MONGO_URI: "mongodb://mongodb:27017/inventario_egi"
   
   # SQL Server externo (VM)
-  DB_URL: "jdbc:sqlserver://sql01.itu.local:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true"
+  DB_URL: "jdbc:sqlserver://192.168.1.20:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true"
   DB_USER: "sa"
   
   # Configuración Frontend y CORS
