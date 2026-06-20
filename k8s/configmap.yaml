@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: inventario-seguro
+data:
+  # MongoDB interno al cluster
+  MONGO_URI: "mongodb://mongodb:27017/inventario_egi"
+  
+  # SQL Server externo (VM)
+  DB_URL: "jdbc:sqlserver://sql01.itu.local:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true"
+  DB_USER: "sa"
+  
+  # Configuración Frontend y CORS
+  # Se contempla el puerto 30443 del Ingress o puerto estándar 443
+  CORS_ALLOWED_ORIGINS: "https://inventario.itu.local:30443,http://inventario.itu.local:30443"
+  VITE_API_URL: "https://inventario.itu.local:30443/api"
+  VITE_USE_MOCK: "false"
