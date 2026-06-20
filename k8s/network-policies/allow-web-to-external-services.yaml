@@ -1,0 +1,50 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-to-external-services
+  namespace: inventario-seguro
+spec:
+  podSelector:
+    matchLabels:
+      app: inventario-web
+  policyTypes:
+  - Egress
+  egress:
+  # SQL Server (VM 3)
+  - to:
+    - ipBlock:
+        cidr: 192.168.10.20/32
+    ports:
+    - protocol: TCP
+      port: 1433
+  # Active Directory / LDAP (VM 2)
+  - to:
+    - ipBlock:
+        cidr: 192.168.10.10/32
+    ports:
+    - protocol: TCP
+      port: 389
+    - protocol: TCP
+      port: 636
+  # DNS en VM 2
+  - to:
+    - ipBlock:
+        cidr: 192.168.10.10/32
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # CoreDNS interno (para resolver servicios dentro del cluster como mongodb)
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

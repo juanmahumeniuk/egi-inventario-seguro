@@ -1,8 +1,8 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: egi-ingress
-  namespace: egi-inventario
+  name: inventario-ingress
+  namespace: inventario-seguro
 spec:
   ingressClassName: nginx
   rules:
@@ -13,6 +13,6 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: egi-backend
+            name: inventario-web
             port:
               number: 8080

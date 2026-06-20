@@ -1,18 +1,17 @@
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
-  name: egi-mongodb
-  namespace: egi-inventario
+  name: mongodb
+  namespace: inventario-seguro
 spec:
-  serviceName: "egi-mongodb"
   replicas: 1
   selector:
     matchLabels:
-      app: egi-mongodb
+      app: mongodb
   template:
     metadata:
       labels:
-        app: egi-mongodb
+        app: mongodb
     spec:
       containers:
       - name: mongodb
@@ -33,23 +32,7 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 5
-  volumeClaimTemplates:
-  - metadata:
-      name: mongo-data
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      resources:
-        requests:
-          storage: 5Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: egi-mongodb
-  namespace: egi-inventario
-spec:
-  ports:
-  - port: 27017
-    targetPort: 27017
-  selector:
-    app: egi-mongodb
+      volumes:
+      - name: mongo-data
+        persistentVolumeClaim:
+          claimName: mongodb-data
