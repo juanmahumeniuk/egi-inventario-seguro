@@ -20,7 +20,7 @@ Desarrollar un ecosistema de software seguro y versionado que permita inventaria
 - Integrar la autenticación de usuarios contra un servidor Active Directory/LDAP y resolución DNS interna en una VM dedicada de Windows Server.
 - Desplegar los componentes de aplicación de forma contenerizada mediante Docker y orquestados con Kubernetes (Minikube con CNI Calico) dentro de una VM independiente.
 - Implementar NetworkPolicies en Kubernetes que garanticen el principio de mínimo privilegio en el tráfico de red interno del clúster y en la comunicación saliente a servicios externos.
-- Simular un perímetro de seguridad mediante un firewall perimetral (UFW/GUFW sobre Ubuntu Server o pfSense como alternativa) en una VM dedicada que simule la DMZ de la red universitaria.
+- Simular un perímetro de seguridad mediante un firewall perimetral (**pfSense**) en una VM dedicada que simule la DMZ de la red universitaria.
 - Versionar el proyecto completo en un repositorio Git con commits atómicos y organizados por responsabilidad.
 
 ---
@@ -33,7 +33,7 @@ La solución definitiva se basa en una **arquitectura híbrida** distribuida en 
 
 | Máquina Virtual | Tecnologías Principales | Responsabilidades / Función | Relación con el Clúster |
 |---|---|---|---|
-| **VM 1: Firewall** | Ubuntu Server, GUFW/UFW (o pfSense como alternativa) | Firewall perimetral, filtrado inicial de tráfico, simulación de DMZ institucional y punto de entrada seguro hacia Kubernetes. | **NO** forma parte del clúster. |
+| **VM 1: Firewall** | pfSense (FreeBSD) | Firewall perimetral y router/gateway con NAT del laboratorio, filtrado inicial de tráfico, simulación de DMZ institucional y punto de entrada seguro hacia Kubernetes. | **NO** forma parte del clúster. |
 | **VM 2: Windows Server** | Active Directory, LDAP / LDAPS, DNS | Autenticación centralizada, gestión de usuarios/grupos institucionales y resolución de nombres (DNS) interna (ej: `dc01.itu.local`, `sql01.itu.local`, `inventario.itu.local`). | **NO** forma parte del clúster. |
 | **VM 3: SQL Server** | Microsoft SQL Server | Base de datos relacional para la gestión de ubicaciones y asignaciones físicas de equipos. | **NO** forma parte del clúster. |
 | **VM 4: Kubernetes** | Minikube, Calico CNI, Ingress NGINX | Hospedar únicamente componentes de aplicación contenerizados. | **Clúster Kubernetes**. |
@@ -49,7 +49,7 @@ Dentro del clúster Kubernetes (VM 4), en un namespace aislado denominado `inven
 graph TD
     U([Usuario Institucional])
 
-    subgraph VM1["VM 1: Firewall (UFW / GUFW)"]
+    subgraph VM1["VM 1: Firewall (pfSense)"]
         FW["Firewall Perimetral\n(Simulación DMZ)"]
     end
 
@@ -276,21 +276,38 @@ flowchart TD
 
 ## 6. Seguridad y Políticas de Red
 
-### 6.1 Modelo Zero-Trust con NetworkPolicies de Kubernetes
+### 6.1 Modelo Zero-Trust con NetworkPolicies de Kubernetes (Calico)
 
-El clúster implementa un modelo de **denegación por defecto** (`default-deny-all`) dentro del namespace `inventario-seguro`: todo el tráfico interno y externo de los pods está bloqueado salvo que sea explícitamente permitido por una NetworkPolicy. Las políticas de red implementadas son:
+El clúster implementa un modelo de **denegación por defecto** (`default-deny-all`) dentro del namespace `inventario-seguro`: todo el tráfico de los pods (entrante y saliente) está bloqueado salvo que sea explícitamente permitido por una NetworkPolicy.
 
-1. **`default-deny-all`**: Bloquea todo el tráfico (ingress/egress) de forma predeterminada para todos los pods en el namespace.
-2. **`allow-ingress-to-web`**: Permite tráfico entrante únicamente desde el Ingress Controller hacia el pod de `inventario-web` en el puerto 8080.
-3. **`allow-web-to-mongodb`**: Permite tráfico de salida desde `inventario-web` y de entrada hacia `mongodb` en el puerto 27017.
-4. **`allow-web-to-external-services`**: Permite tráfico de salida desde el pod `inventario-web` hacia el exterior del clúster para consumir los servicios alojados en las VMs externas (DNS, LDAP/LDAPS y SQL Server).
+**Por qué Calico:** las NetworkPolicies son objetos estándar de la API de Kubernetes, pero **quien las hace cumplir es el plugin de red (CNI)**. El CNI por defecto de Minikube **no implementa NetworkPolicies**: si se aplican sin un CNI compatible, Kubernetes las acepta pero **no tienen ningún efecto** (el tráfico sigue pasando). Por eso el clúster se inicia obligatoriamente con **Calico** como CNI (`minikube start --cni=calico`), que sí evalúa y aplica las reglas, haciendo real el `default-deny`.
+
+#### 6.1.1 Alcance: hasta dónde llega y por qué
+
+Calico es la capa de seguridad **complementaria** a pfSense (ver 6.5). Mientras pfSense cubre el perímetro (Norte-Sur), Calico cubre la **micro-segmentación de servicios**:
+
+| Eje de tráfico | ¿Lo controla Calico? | Detalle |
+|---|---|---|
+| **Intra-clúster** — pod ↔ pod, `inventario-web` ↔ MongoDB | ✅ Sí | Ingress/egress entre pods del namespace |
+| **Egress del clúster** — `inventario-web` → SQL/LDAP/DNS (VMs externas) | ✅ Sí | Salida controlada por `allow-web-to-external-services` |
+| **Entrada al pod web** — Ingress Controller → `inventario-web` | ✅ Sí | `allow-ingress-to-web` |
+| **Perímetro** — exterior ↔ clúster, salida a internet | ❌ No | Responsabilidad de pfSense (ver 6.5) |
+
+El alcance de Calico **empieza donde termina pfSense**: pfSense deja entrar el HTTPS al clúster, y a partir de ahí Calico decide, pod por pod, qué puede hablar con qué. La razón de esta división es la misma que en 6.5: cada capa controla lo que **técnicamente puede ver** —pfSense enruta entre VMs/redes, Calico opera dentro del plano de red del clúster— y se evita tener dos fuentes de verdad para la misma regla.
+
+#### 6.1.2 Las cuatro NetworkPolicies
+
+1. **`default-deny-all`**: selecciona **todos** los pods del namespace (`podSelector: {}`) y bloquea todo el tráfico `Ingress` y `Egress`. Es la base Zero-Trust; las demás políticas abren excepciones puntuales sobre ella.
+2. **`allow-ingress-to-web`**: permite tráfico **entrante** hacia `inventario-web` (puerto **8080**) únicamente desde el Ingress Controller. Ningún otro pod puede iniciar conexión con el web.
+3. **`allow-web-to-mongodb`**: permite el **egress** de `inventario-web` y el **ingress** a `mongodb` en el puerto **27017**. MongoDB solo acepta conexiones del pod web; el Ingress no puede llegar directo a la base.
+4. **`allow-web-to-external-services`**: permite el **egress** de `inventario-web` hacia fuera del clúster para consumir los servicios de las VMs externas: **DNS (53)**, **LDAP/LDAPS (389/636)** y **SQL Server (1433)**.
 
 ```mermaid
 graph TD
     EXT([Usuario / Tráfico Externo])
     
     subgraph VM1["VM 1: Firewall perimetral"]
-        FW["Firewall (UFW/pfSense)\nFiltra tráfico HTTPS"]
+        FW["Firewall pfSense\nFiltra tráfico HTTPS"]
     end
 
     subgraph VM4["VM 4: Kubernetes"]
@@ -323,6 +340,35 @@ graph TD
     IC -. "❌ Bloqueado directo a DB" .-> MONGO
 ```
 
+#### 6.1.3 Pasos de aplicación
+
+1. **Iniciar Minikube con Calico** (obligatorio para que las políticas surtan efecto):
+   ```bash
+   minikube start --cni=calico
+   ```
+   Verificar que los pods de Calico estén corriendo: `kubectl get pods -n kube-system | grep calico`.
+2. **Crear el namespace** aislado:
+   ```bash
+   kubectl apply -f k8s/namespace.yaml
+   ```
+3. **Aplicar las NetworkPolicies en orden**, empezando por la denegación total para que el resto sean excepciones sobre una base segura:
+   ```bash
+   kubectl apply -f k8s/network-policies/default-deny-all.yaml
+   kubectl apply -f k8s/network-policies/allow-ingress-to-web.yaml
+   kubectl apply -f k8s/network-policies/allow-web-to-mongodb.yaml
+   kubectl apply -f k8s/network-policies/allow-web-to-external-services.yaml
+   ```
+4. **Verificar** que las políticas estén activas y que el bloqueo funcione:
+   ```bash
+   kubectl get networkpolicy -n inventario-seguro
+   # Prueba negativa: una shell en un pod no autorizado NO debe alcanzar a mongodb
+   kubectl exec -n inventario-seguro <pod-no-web> -- nc -zv mongodb 27017   # debe fallar (timeout)
+   # Prueba positiva: el pod web SÍ debe alcanzar a mongodb
+   kubectl exec -n inventario-seguro <pod-web> -- nc -zv mongodb 27017      # debe conectar
+   ```
+
+> Si las pruebas negativas **conectan** en lugar de fallar, es señal de que el CNI no está aplicando las políticas (típicamente porque el clúster no se inició con `--cni=calico`).
+
 ### 6.2 Reglas de Red Resumidas
 
 | Origen | Destino | Puerto | NetworkPolicy / Mecanismo | Acción |
@@ -353,11 +399,58 @@ A diferencia de la autenticación de usuarios, la base documental MongoDB (que r
 - El backend (`inventario-web`) se conecta a MongoDB mediante una **cuenta técnica** o credenciales administrativas exclusivas de la base de datos (almacenadas de forma segura en un Secret de Kubernetes).
 - La autorización para interactuar con las colecciones de hardware se delega exclusivamente a la lógica del backend mediante **Spring Security**, asegurando que los usuarios solo puedan operar con MongoDB si poseen los roles de aplicación correspondientes (`ROLE_ADMIN` o `ROLE_EDITOR`).
 
-### 6.5 Simulación Perimetral (VM 1 - Firewall)
+### 6.5 Firewall Perimetral (VM 1 — pfSense)
 
-El perímetro de seguridad se simula utilizando una máquina virtual dedicada (**VM 1 - Firewall**) corriendo **Ubuntu Server** con **GUFW/UFW** (o alternativamente **pfSense**).
-- Este firewall perimetral actúa como el único punto de contacto con el exterior (simulación de DMZ institucional).
-- Filtra el tráfico inicial permitiendo exclusivamente peticiones HTTPS entrantes y redirige de manera segura las solicitudes legítimas hacia el Ingress Controller de Kubernetes en la VM 4. Todo tráfico no autorizado explícitamente en el firewall es rechazado inmediatamente.
+El perímetro de seguridad se implementa en una máquina virtual dedicada (**VM 1**) que ejecuta **pfSense** (firewall/router basado en FreeBSD). Se eligió pfSense sobre UFW/GUFW porque el rol de la VM 1 es el de un firewall **perimetral** —un *gateway* que enruta y filtra entre redes y realiza NAT— y no el de un simple firewall de host. pfSense modela de forma nativa NAT, reglas por interfaz y la separación WAN/LAN propia de una DMZ, lo que se alinea con la topología del proyecto.
+
+pfSense cumple una doble función:
+1. **Firewall perimetral (simulación de DMZ):** único punto de contacto con el exterior. Permite exclusivamente HTTPS entrante y lo redirige al Ingress Controller de la VM 4; el resto del tráfico entrante se rechaza por defecto.
+2. **Router/gateway con NAT del laboratorio:** es el *default gateway* de la red interna (LAN) donde residen las VMs 2, 3 y 4, y les provee salida a internet mediante NAT de salida (outbound).
+
+#### 6.5.1 Alcance del firewall: hasta dónde llega y por qué
+
+| Eje de tráfico | ¿Lo controla pfSense? | Mecanismo responsable |
+|---|---|---|
+| **Norte-Sur** — exterior ↔ clúster (entrada HTTPS) | ✅ Sí | pfSense (port forward + default-deny en WAN) |
+| **Salida a internet** — VMs internas → exterior | ✅ Sí | pfSense (Outbound NAT) |
+| **Este-Oeste** — servicio ↔ servicio entre VMs (K8s ↔ SQL/LDAP/DNS) | ❌ No | NetworkPolicies de Calico (egress `allow-web-to-external-services`, ver 6.1 y 6.2) |
+| **Intra-clúster** — pod ↔ pod, pod ↔ MongoDB | ❌ No | NetworkPolicies de Calico (ver 6.1 y 6.2) |
+
+El alcance de pfSense **termina en el perímetro** (Norte-Sur y salida a internet). El control fino del tráfico entre servicios (Este-Oeste) **no** es responsabilidad de pfSense, por dos razones:
+
+- **Razón arquitectónica:** el diseño Zero-Trust del proyecto divide responsabilidades en dos capas complementarias —el **perímetro** lo cubre pfSense y la **micro-segmentación de servicios** la cubren las NetworkPolicies de Calico (secciones 6.1 y 6.2)—. Duplicar el control Este-Oeste en pfSense sería redundante y generaría dos fuentes de verdad para la misma regla.
+- **Razón técnica:** pfSense solo inspecciona el tráfico que **enruta entre sus interfaces**. No ve el tráfico interno del clúster Kubernetes (gestionado por el CNI Calico) ni el tráfico entre máquinas que comparten la misma subred (que se conmuta a nivel 2 sin pasar por el firewall).
+
+#### 6.5.2 Diseño de red
+
+pfSense se configura con dos interfaces: **WAN** (exterior) y **LAN** (red interna del laboratorio, `192.168.10.0/24`).
+
+| Elemento | Interfaz / IP |
+|---|---|
+| pfSense WAN | DHCP (red externa) |
+| pfSense LAN (gateway) | `192.168.10.1/24` |
+| VM 2 — AD / DNS | `192.168.10.10` |
+| VM 3 — SQL Server | `192.168.10.20` |
+| VM 4 — Kubernetes | `192.168.10.40` |
+| Puerto del Ingress (NodePort) | `30443` |
+
+#### 6.5.3 Pasos de configuración
+
+1. **Interfaces:** asignar WAN (exterior) y LAN; fijar la LAN en `192.168.10.1/24` y habilitar su servidor DHCP.
+2. **Desbloquear redes privadas en la WAN:** desmarcar *Block private networks* y *Block bogon networks* en la interfaz WAN. En un laboratorio la WAN está en rango privado y, sin este paso, pfSense descartaría el tráfico y el port forward no funcionaría.
+3. **Outbound NAT (salida a internet):** dejar el modo *Automatic outbound NAT*, que enmascara `192.168.10.0/24` saliendo por la WAN.
+4. **Port Forward (entrada HTTPS → Ingress):** redirigir `WAN:443/TCP` hacia `192.168.10.40:30443` (NodePort del Ingress de la VM 4), con la opción *Add associated filter rule* para crear automáticamente la regla de paso.
+5. **Default-deny perimetral:** no crear ninguna otra regla de entrada en la WAN; todo lo no permitido explícitamente queda denegado.
+
+#### 6.5.4 Reglas del firewall perimetral
+
+| Origen | Destino | Puerto | Acción | Regla |
+|---|---|---|---|---|
+| Exterior (WAN) | Ingress K8s (`192.168.10.40`) | 443 → 30443 | ✅ Permitido (NAT + paso) | Port Forward `HTTPS → Ingress` |
+| VMs internas (LAN) | Internet | salida | ✅ Permitido (enmascarado) | Outbound NAT automático |
+| Exterior (WAN) | Cualquier otro destino/puerto | Todos | ❌ Denegado | Default-deny perimetral |
+
+> Los pasos detallados de implementación (configuración de placas en VirtualBox, asignación de interfaces, capturas de la GUI y verificación) están documentados en `firewall/reglas_pfsense.md` del repositorio.
 
 ---
 
@@ -415,6 +508,38 @@ El pipeline automatizado mediante **GitHub Actions** se enfoca exclusivamente en
 4. **Publicación**: Envío de la imagen generada al registro de contenedores (Docker Hub o GitHub Packages).
 5. **Despliegue automático (CD)**: Aplicación de los manifiestos actualizados en el clúster de Kubernetes para actualizar el Deployment `inventario-web` en caliente.
 
+### 7.4 Orden de despliegue end-to-end (Minikube + pfSense)
+
+El despliegue sigue un orden pensado para **probar conectividad primero y restringir con políticas después**, lo que facilita detectar dónde falla cada cosa. Los manifiestos del monolito (`inventario-web`) viven en `k8s/` (deployment único, services, ingress, network-policies, storage).
+
+1. **Iniciar el clúster con Calico** (el CNI se elige **al crear** el clúster; no se puede agregar después sin recrearlo):
+   ```bash
+   minikube start --cni=calico
+   ```
+2. **Habilitar el Ingress Controller**:
+   ```bash
+   minikube addons enable ingress
+   ```
+3. **Aplicar los manifiestos** (config → datos → app → red), incluido el NodePort fijo `30443`:
+   ```bash
+   kubectl apply -f k8s/namespace.yaml
+   kubectl apply -f k8s/configmap.yaml -f k8s/01-config/secret.yaml
+   kubectl apply -f k8s/storage/mongodb-pvc.yaml -f k8s/deployments/mongodb.yaml -f k8s/services/mongodb.yaml
+   kubectl apply -f k8s/deployments/inventario-web.yaml -f k8s/services/inventario-web.yaml
+   kubectl apply -f k8s/ingress/inventario-ingress.yaml
+   kubectl apply -f k8s/ingress/ingress-nginx-nodeport.yaml   # abre el 30443 hacia el controlador
+   ```
+4. **Configurar pfSense** (port forward `WAN:443 → 192.168.10.40:30443`, ver 6.5) y **probar pegarle al 30443 SIN políticas aún** → debe responder. Si no responde acá, el problema es de conectividad/NodePort, no de Calico.
+5. **Aplicar las NetworkPolicies** —la denegación total y los cuatro permisos **juntos** (ver 6.1.3):
+   ```bash
+   kubectl apply -f k8s/network-policies/
+   ```
+
+> **Tres advertencias clave:**
+> 1. **Calico va al inicio.** Si arrancás Minikube sin `--cni=calico` y después querés Calico, hay que **recrear el clúster** desde cero.
+> 2. **El NodePort debe ser alcanzable en la IP LAN de la VM4** (`192.168.10.40`). Según el driver de Minikube (ej. `docker`), el NodePort puede quedar en la IP interna de Minikube y no en la de la VM; en ese caso usar `--driver=none`, `minikube tunnel` o un reenvío dentro de la VM4.
+> 3. **Al aplicar `default-deny-all`, el 30443 deja de responder** hasta que también esté `allow-ingress-to-web`. Aplicar la denegación y los permisos en un solo paso (paso 5), nunca la denegación sola.
+
 ---
 
 ## 8. Estructura del Repositorio Git
@@ -456,9 +581,8 @@ El proyecto debe versionarse en un repositorio Git unificado con la siguiente es
 │       └── mongodb-pvc.yaml
 ├── app/
 │   ├── inventario-web/
-│   │   ├── Dockerfile          # Backend Spring Boot (multi-stage)
+│   │   ├── Dockerfile          # Spring Boot + frontend embebido (multi-stage)
 │   │   ├── frontend/
-│   │   │   ├── Dockerfile      # Frontend React (nginx)
 │   │   │   └── src/
 │   │   └── src/
 ├── migraciones/
@@ -466,7 +590,7 @@ El proyecto debe versionarse en un repositorio Git unificado con la siguiente es
 │   │   └── V0__create_database.sql  # Script para VM de SQL Server
 │   └── mongodb/
 └── firewall/
-    └── reglas_gufw.md
+    └── reglas_pfsense.md
 ```
 
 El historial de commits debe reflejar la contribución individual de cada integrante y la evolución incremental del proyecto, siguiendo buenas prácticas de mensajes descriptivos y ramas de trabajo por funcionalidad.
@@ -481,7 +605,7 @@ El historial de commits debe reflejar la contribución individual de cada integr
 | Integrante 2 | Modelado y creación de la base de datos SQL Server (`ubicacion-db`), script SQL |
 | Integrante 3 | Diseño de colección MongoDB (`inventario-db`), documentos JSON, queries de prueba |
 | Integrante 4 | Desarrollo de la aplicación web (`inventario-web`): frontend + API REST (Spring Boot) |
-| Integrante 5 | Configuración del servidor LDAP, NetworkPolicies, simulación de firewall (GUFW), presentación |
+| Integrante 5 | Configuración del servidor LDAP, NetworkPolicies, configuración del firewall perimetral (pfSense), presentación |
 
 ---
 
@@ -664,22 +788,27 @@ docker compose -f docker-compose.dev.yml up -d
 
 #### Despliegue — `docker-compose.yml`
 
-Levanta **frontend**, **backend** y **MongoDB** con builds de producción (nginx + JAR). **SQL Server no se dockeriza**: corre en una **VM externa** y el backend se conecta mediante variables de entorno.
+Levanta la **aplicación** (Spring Boot con frontend embebido) y **MongoDB**. **SQL Server no se dockeriza**: corre en una VM externa y el backend se conecta mediante `DB_URL` en `.env`.
+
+El frontend React se compila durante `mvn package` (`frontend-maven-plugin`) hacia `src/main/resources/static` y se sirve desde el mismo puerto que la API. **Un solo contenedor de aplicación**, sin nginx separado.
 
 | Servicio | Dónde corre | Puerto (ejemplo) |
 |---|---|---|
-| Frontend (nginx) | Contenedor Docker | 3000 → 80 |
-| Backend (Spring Boot) | Contenedor Docker | 8080 |
+| App (Spring Boot + UI) | Contenedor Docker | 8080 |
 | MongoDB | Contenedor Docker | red interna `mongodb:27017` |
 | SQL Server | **VM externa** | 1433 (configurado en `DB_URL`) |
 
 ```bash
 cp .env.example .env
-# Editar .env con la IP/hostname de la VM de SQL Server
+# Editar DB_URL y DB_PASSWORD con la VM de SQL Server
 docker compose up --build -d
+# App completa: http://localhost:8080
+# API:          http://localhost:8080/api
 ```
 
-##### Preparar la VM de SQL Server
+Durante el build Docker, `VITE_API_URL=/api` (ruta relativa, misma origin). No se requiere CORS en producción embebida.
+
+##### Preparar SQL Server (VM externa)
 
 1. Instalar SQL Server en la VM y abrir el puerto **1433** hacia el host donde corre Docker.
 2. Crear la base de datos (una sola vez):
@@ -723,7 +852,7 @@ La aplicación se configura mediante variables de entorno para no hardcodear cre
 | `DB_USER` | `sa` | Usuario SQL Server |
 | `DB_PASSWORD` | `sa` | Contraseña SQL Server |
 | `MONGO_URI` | `mongodb://localhost:27018/inventario_egi` | URI MongoDB. En Docker: `mongodb://mongodb:27017/inventario_egi` |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Orígenes permitidos para CORS (URL pública del frontend) |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Orígenes CORS (solo necesario en dev con Vite en `:3000`) |
 
 En `application.yml`, la URL de SQL Server se resuelve desde `DB_URL`:
 
@@ -735,16 +864,16 @@ spring:
     password: ${DB_PASSWORD:sa}
 ```
 
-#### Frontend (build Docker)
+#### Frontend embebido (build)
 
-Estas variables se inyectan en **build time** mediante build args del `docker-compose.yml`:
+El frontend se compila con `VITE_API_URL=/api` (configurado en `pom.xml` y en el Dockerfile). En producción embebida la API se llama con ruta relativa; no hace falta configurar `VITE_*` en el `.env` de Docker.
 
-| Variable | Valor por defecto | Descripción |
-|---|---|---|
-| `VITE_API_URL` | `http://localhost:8080/api` | URL pública de la API (desde el navegador del usuario) |
-| `VITE_USE_MOCK` | `false` | Si es `true`, el frontend usa datos mock en localStorage sin backend |
+Para desarrollo local con Vite (`npm run dev` en `:3000`), usar `app/inventario-web/frontend/.env.local`:
 
-Para desarrollo local con Vite (`npm run dev`), las mismas variables se definen en `app/inventario-web/frontend/.env.local`.
+```env
+VITE_API_URL=http://localhost:8080/api
+VITE_USE_MOCK=false
+```
 
 ---
 
@@ -776,7 +905,8 @@ El frontend implementa una capa de servicios en `src/services/` que abstrae la c
 El frontend soporta dos modos controlados por variables de entorno:
 
 ```env
-# Modo real (conecta al backend Spring Boot)
+# Producción embebida: fallback /api (no requiere configuración)
+# Desarrollo con Vite (:3000 → API :8080):
 VITE_API_URL=http://localhost:8080/api
 VITE_USE_MOCK=false
 
@@ -787,9 +917,7 @@ VITE_USE_MOCK=true
 | Archivo | Cuándo usarlo |
 |---|---|
 | `app/inventario-web/frontend/.env.local` | Desarrollo local con `npm run dev` |
-| `.env` (raíz del repo) | Despliegue con `docker compose up` (build args del frontend y env del backend) |
-
-Ver `.env.example` en la raíz del repositorio para la plantilla completa de despliegue.
+| Build embebido (`mvn package` / Docker) | `VITE_API_URL=/api` automático via `pom.xml` |
 
 El modo mock simula con fidelidad el comportamiento del backend (transacciones SQL + MongoDB) usando `localStorage`, lo que permite desarrollar el frontend de forma independiente.
 
@@ -809,20 +937,12 @@ Credenciales por defecto para el login: `admin` / `admin123` (o cualquier usuari
 
 ### 13.1 CORS
 
-La clase `CorsConfig` (en `config/`) habilita CORS para que el frontend pueda comunicarse con el backend. Los orígenes permitidos se configuran con la variable de entorno `CORS_ALLOWED_ORIGINS` (por defecto `http://localhost:3000`):
+La clase `CorsConfig` habilita CORS para desarrollo con Vite (`npm run dev` en `:3000` → API en `:8080`). En producción embebida (todo en `:8080`) no es necesario. Orígenes configurables via `CORS_ALLOWED_ORIGINS`:
 
 ```java
 @Value("${CORS_ALLOWED_ORIGINS:http://localhost:3000}")
 private String[] allowedOrigins;
-
-registry.addMapping("/api/**")
-        .allowedOrigins(allowedOrigins)
-        .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-        .allowedHeaders("*")
-        .allowCredentials(true);
 ```
-
-En despliegue Docker, `CORS_ALLOWED_ORIGINS` debe coincidir con la URL pública desde la que se sirve el frontend.
 
 ### 13.2 Convención de naming JSON
 

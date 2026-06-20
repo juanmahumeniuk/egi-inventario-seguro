@@ -7,7 +7,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import org.springframework.stereotype.Repository;
 
+@Repository
 public interface PersonaMaquinaRepository extends JpaRepository<PersonaMaquina, PersonaMaquinaId> {
 
     @Query("SELECT pm FROM PersonaMaquina pm WHERE pm.maquina.id = :maquinaId")

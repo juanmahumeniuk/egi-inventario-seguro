@@ -3,12 +3,16 @@ package com.itu.egi.inventarioseguro.controller;
 import com.itu.egi.inventarioseguro.dto.*;
 import com.itu.egi.inventarioseguro.model.Aula;
 import com.itu.egi.inventarioseguro.model.TipoEquipo;
+import com.itu.egi.inventarioseguro.security.JwtAuthenticationEntryPoint;
+import com.itu.egi.inventarioseguro.security.JwtFilter;
+import com.itu.egi.inventarioseguro.security.JwtService;
 import com.itu.egi.inventarioseguro.service.MaquinaService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
@@ -26,6 +30,11 @@ class MaquinaControllerTest {
 
     @Autowired MockMvc mockMvc;
     @MockBean  MaquinaService maquinaService;
+
+    // Mocks de seguridad para el contexto de WebMvcTest
+    @MockBean JwtService jwtService;
+    @MockBean JwtFilter jwtFilter;
+    @MockBean JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
     private MaquinaConAsignacionesDTO dtoEjemplo() {
         DiscoDTO disco = new DiscoDTO();
@@ -53,6 +62,7 @@ class MaquinaControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "READONLY")
     void GET_maquinas_devuelve200_conSnakeCase() throws Exception {
         when(maquinaService.findAll()).thenReturn(List.of(dtoEjemplo()));
 
@@ -70,6 +80,7 @@ class MaquinaControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "READONLY")
     void GET_maquina_porId_devuelve200() throws Exception {
         when(maquinaService.findById(1L)).thenReturn(dtoEjemplo());
 
@@ -81,6 +92,7 @@ class MaquinaControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "EDITOR")
     void POST_maquinas_conBodyValido_devuelve201() throws Exception {
         when(maquinaService.create(any())).thenReturn(dtoEjemplo());
 
@@ -107,8 +119,8 @@ class MaquinaControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "EDITOR")
     void POST_maquinas_sinCamposObligatorios_devuelve400() throws Exception {
-        // Falta "especificaciones" que es @NotNull
         String body = """
                 {
                   "aula": "LABORATORIO_SO",
@@ -123,6 +135,7 @@ class MaquinaControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "EDITOR")
     void PUT_maquina_devuelve200() throws Exception {
         when(maquinaService.update(eq(1L), any())).thenReturn(dtoEjemplo());
 
@@ -149,6 +162,7 @@ class MaquinaControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "ADMIN")
     void DELETE_maquina_devuelve204() throws Exception {
         doNothing().when(maquinaService).delete(1L);
 

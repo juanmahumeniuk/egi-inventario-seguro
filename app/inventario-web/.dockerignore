@@ -2,4 +2,5 @@ target/
 .git/
 .gitignore
 *.md
-frontend/
+frontend/node_modules/
+frontend/dist/
