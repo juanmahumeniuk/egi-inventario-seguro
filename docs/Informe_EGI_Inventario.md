@@ -38,7 +38,7 @@ La solución definitiva se basa en una **arquitectura híbrida** distribuida en 
 | **VM 3: SQL Server** | Microsoft SQL Server | Base de datos relacional para la gestión de ubicaciones y asignaciones físicas de equipos. | **NO** forma parte del clúster. |
 | **VM 4: Kubernetes** | Minikube, Calico CNI, Ingress NGINX | Hospedar únicamente componentes de aplicación contenerizados. | **Clúster Kubernetes**. |
 
-Dentro del clúster Kubernetes (VM 4), en un namespace aislado denominado `egi-inventario`, residen únicamente los siguientes elementos de aplicación:
+Dentro del clúster Kubernetes (VM 4), en un namespace aislado denominado `inventario-seguro`, residen únicamente los siguientes elementos de aplicación:
 - **`inventario-web`**: Aplicación monolítica en Spring Boot que empaqueta e integra el backend REST, la seguridad JWT, la comunicación LDAP y el frontend React compiled y servido desde `src/main/resources/static`. Se despliega como un único Deployment y un único Service.
 - **MongoDB**: Base documental para las especificaciones de hardware. Permanece contenerizada con almacenamiento persistente vía PersistentVolumeClaims.
 - **Ingress NGINX**: Punto único de entrada al clúster para resolver el host `inventario.itu.local` y redirigir las peticiones al servicio `inventario-web`.
@@ -65,7 +65,7 @@ graph TD
     subgraph VM4["VM 4: Kubernetes (Minikube + Calico)"]
         IC["Ingress Controller\n(inventario.itu.local)"]
         
-        subgraph NS["Namespace: egi-inventario"]
+        subgraph NS["Namespace: inventario-seguro"]
             FE["inventario-web\n(Spring Boot + React)"]
             MONGO["inventario-db\n(MongoDB :27017)"]
         end
@@ -278,7 +278,7 @@ flowchart TD
 
 ### 6.1 Modelo Zero-Trust con NetworkPolicies de Kubernetes (Calico)
 
-El clúster implementa un modelo de **denegación por defecto** (`default-deny-all`) dentro del namespace `egi-inventario`: todo el tráfico de los pods (entrante y saliente) está bloqueado salvo que sea explícitamente permitido por una NetworkPolicy.
+El clúster implementa un modelo de **denegación por defecto** (`default-deny-all`) dentro del namespace `inventario-seguro`: todo el tráfico de los pods (entrante y saliente) está bloqueado salvo que sea explícitamente permitido por una NetworkPolicy.
 
 **Por qué Calico:** las NetworkPolicies son objetos estándar de la API de Kubernetes, pero **quien las hace cumplir es el plugin de red (CNI)**. El CNI por defecto de Minikube **no implementa NetworkPolicies**: si se aplican sin un CNI compatible, Kubernetes las acepta pero **no tienen ningún efecto** (el tráfico sigue pasando). Por eso el clúster se inicia obligatoriamente con **Calico** como CNI (`minikube start --cni=calico`), que sí evalúa y aplica las reglas, haciendo real el `default-deny`.
 
@@ -313,7 +313,7 @@ graph TD
     subgraph VM4["VM 4: Kubernetes"]
         IC["Ingress Controller"]
         
-        subgraph NS["Namespace: egi-inventario"]
+        subgraph NS["Namespace: inventario-seguro"]
             FE["inventario-web\n(Spring Boot)"]
             MONGO["inventario-db\n(MongoDB :27017)"]
         end
@@ -360,11 +360,11 @@ graph TD
    ```
 4. **Verificar** que las políticas estén activas y que el bloqueo funcione:
    ```bash
-   kubectl get networkpolicy -n egi-inventario
+   kubectl get networkpolicy -n inventario-seguro
    # Prueba negativa: una shell en un pod no autorizado NO debe alcanzar a mongodb
-   kubectl exec -n egi-inventario <pod-no-web> -- nc -zv mongodb 27017   # debe fallar (timeout)
+   kubectl exec -n inventario-seguro <pod-no-web> -- nc -zv mongodb 27017   # debe fallar (timeout)
    # Prueba positiva: el pod web SÍ debe alcanzar a mongodb
-   kubectl exec -n egi-inventario <pod-web> -- nc -zv mongodb 27017      # debe conectar
+   kubectl exec -n inventario-seguro <pod-web> -- nc -zv mongodb 27017      # debe conectar
    ```
 
 > Si las pruebas negativas **conectan** en lugar de fallar, es señal de que el CNI no está aplicando las políticas (típicamente porque el clúster no se inició con `--cni=calico`).
@@ -458,13 +458,13 @@ pfSense se configura con dos interfaces: **WAN** (exterior) y **LAN** (red inter
 
 ### 7.1 Estructura de Manifiestos Kubernetes
 
-Dentro del namespace `egi-inventario` del clúster Kubernetes, se configuran únicamente los recursos indispensables para la aplicación y la base documental:
+Dentro del namespace `inventario-seguro` del clúster Kubernetes, se configuran únicamente los recursos indispensables para la aplicación y la base documental:
 
 ```mermaid
 graph TD
     K8S["Clúster Minikube\n(CNI: Calico)"]
     
-    K8S --> NS["Namespace:\negi-inventario"]
+    K8S --> NS["Namespace:\ninventario-seguro"]
     
     NS --> DEP1["Deployment:\ninventario-web"]
     NS --> DEP3["Deployment:\nmongodb"]
@@ -507,6 +507,38 @@ El pipeline automatizado mediante **GitHub Actions** se enfoca exclusivamente en
 3. **Construcción de Imágenes**: Generación de la imagen de producción Docker para la aplicación unificada `inventario-web`.
 4. **Publicación**: Envío de la imagen generada al registro de contenedores (Docker Hub o GitHub Packages).
 5. **Despliegue automático (CD)**: Aplicación de los manifiestos actualizados en el clúster de Kubernetes para actualizar el Deployment `inventario-web` en caliente.
+
+### 7.4 Orden de despliegue end-to-end (Minikube + pfSense)
+
+El despliegue sigue un orden pensado para **probar conectividad primero y restringir con políticas después**, lo que facilita detectar dónde falla cada cosa. Los manifiestos del monolito (`inventario-web`) viven en `k8s/` (deployment único, services, ingress, network-policies, storage).
+
+1. **Iniciar el clúster con Calico** (el CNI se elige **al crear** el clúster; no se puede agregar después sin recrearlo):
+   ```bash
+   minikube start --cni=calico
+   ```
+2. **Habilitar el Ingress Controller**:
+   ```bash
+   minikube addons enable ingress
+   ```
+3. **Aplicar los manifiestos** (config → datos → app → red), incluido el NodePort fijo `30443`:
+   ```bash
+   kubectl apply -f k8s/namespace.yaml
+   kubectl apply -f k8s/configmap.yaml -f k8s/01-config/secret.yaml
+   kubectl apply -f k8s/storage/mongodb-pvc.yaml -f k8s/deployments/mongodb.yaml -f k8s/services/mongodb.yaml
+   kubectl apply -f k8s/deployments/inventario-web.yaml -f k8s/services/inventario-web.yaml
+   kubectl apply -f k8s/ingress/inventario-ingress.yaml
+   kubectl apply -f k8s/ingress/ingress-nginx-nodeport.yaml   # abre el 30443 hacia el controlador
+   ```
+4. **Configurar pfSense** (port forward `WAN:443 → 192.168.10.40:30443`, ver 6.5) y **probar pegarle al 30443 SIN políticas aún** → debe responder. Si no responde acá, el problema es de conectividad/NodePort, no de Calico.
+5. **Aplicar las NetworkPolicies** —la denegación total y los cuatro permisos **juntos** (ver 6.1.3):
+   ```bash
+   kubectl apply -f k8s/network-policies/
+   ```
+
+> **Tres advertencias clave:**
+> 1. **Calico va al inicio.** Si arrancás Minikube sin `--cni=calico` y después querés Calico, hay que **recrear el clúster** desde cero.
+> 2. **El NodePort debe ser alcanzable en la IP LAN de la VM4** (`192.168.10.40`). Según el driver de Minikube (ej. `docker`), el NodePort puede quedar en la IP interna de Minikube y no en la de la VM; en ese caso usar `--driver=none`, `minikube tunnel` o un reenvío dentro de la VM4.
+> 3. **Al aplicar `default-deny-all`, el 30443 deja de responder** hasta que también esté `allow-ingress-to-web`. Aplicar la denegación y los permisos en un solo paso (paso 5), nunca la denegación sola.
 
 ---
 
