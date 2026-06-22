@@ -423,30 +423,30 @@ El alcance de pfSense **termina en el perímetro** (Norte-Sur y salida a interne
 
 #### 6.5.2 Diseño de red
 
-pfSense se configura con dos interfaces: **WAN** (exterior) y **LAN** (red interna del laboratorio, `192.168.10.0/24`).
+pfSense se configura con dos interfaces: **WAN** (exterior) y **LAN** (red interna del laboratorio, `192.168.56.0/24`).
 
 | Elemento | Interfaz / IP |
 |---|---|
 | pfSense WAN | DHCP (red externa) |
-| pfSense LAN (gateway) | `192.168.10.1/24` |
-| VM 2 — AD / DNS | `192.168.10.10` |
-| VM 3 — SQL Server | `192.168.10.20` |
-| VM 4 — Kubernetes | `192.168.10.40` |
+| pfSense LAN (gateway) | `192.168.56.1/24` |
+| VM 2 — AD / DNS | `192.168.56.102` |
+| VM 3 — SQL Server | `192.168.56.101` |
+| VM 4 — Kubernetes | `192.168.56.103` |
 | Puerto del Ingress (NodePort) | `30443` |
 
 #### 6.5.3 Pasos de configuración
 
-1. **Interfaces:** asignar WAN (exterior) y LAN; fijar la LAN en `192.168.10.1/24` y habilitar su servidor DHCP.
+1. **Interfaces:** asignar WAN (exterior) y LAN; fijar la LAN en `192.168.56.1/24` y habilitar su servidor DHCP.
 2. **Desbloquear redes privadas en la WAN:** desmarcar *Block private networks* y *Block bogon networks* en la interfaz WAN. En un laboratorio la WAN está en rango privado y, sin este paso, pfSense descartaría el tráfico y el port forward no funcionaría.
-3. **Outbound NAT (salida a internet):** dejar el modo *Automatic outbound NAT*, que enmascara `192.168.10.0/24` saliendo por la WAN.
-4. **Port Forward (entrada HTTPS → Ingress):** redirigir `WAN:443/TCP` hacia `192.168.10.40:30443` (NodePort del Ingress de la VM 4), con la opción *Add associated filter rule* para crear automáticamente la regla de paso.
+3. **Outbound NAT (salida a internet):** dejar el modo *Automatic outbound NAT*, que enmascara `192.168.56.0/24` saliendo por la WAN.
+4. **Port Forward (entrada HTTPS → Ingress):** redirigir `WAN:443/TCP` hacia `192.168.56.103:30443` (NodePort del Ingress de la VM 4), con la opción *Add associated filter rule* para crear automáticamente la regla de paso.
 5. **Default-deny perimetral:** no crear ninguna otra regla de entrada en la WAN; todo lo no permitido explícitamente queda denegado.
 
 #### 6.5.4 Reglas del firewall perimetral
 
 | Origen | Destino | Puerto | Acción | Regla |
 |---|---|---|---|---|
-| Exterior (WAN) | Ingress K8s (`192.168.10.40`) | 443 → 30443 | ✅ Permitido (NAT + paso) | Port Forward `HTTPS → Ingress` |
+| Exterior (WAN) | Ingress K8s (`192.168.56.103`) | 443 → 30443 | ✅ Permitido (NAT + paso) | Port Forward `HTTPS → Ingress` |
 | VMs internas (LAN) | Internet | salida | ✅ Permitido (enmascarado) | Outbound NAT automático |
 | Exterior (WAN) | Cualquier otro destino/puerto | Todos | ❌ Denegado | Default-deny perimetral |
 
@@ -523,13 +523,18 @@ El despliegue sigue un orden pensado para **probar conectividad primero y restri
 3. **Aplicar los manifiestos** (config → datos → app → red), incluido el NodePort fijo `30443`:
    ```bash
    kubectl apply -f k8s/namespace.yaml
-   kubectl apply -f k8s/configmap.yaml -f k8s/01-config/secret.yaml
+   kubectl apply -f k8s/configmap.yaml
+   # Crear los Secrets manualmente (NO están en el repo por seguridad):
+   # kubectl -n inventario-seguro create secret generic sql-secret --from-literal=DB_PASSWORD='...'
+   # kubectl -n inventario-seguro create secret generic ldap-secret --from-literal=LDAP_BIND_DN='...' --from-literal=LDAP_BIND_PASSWORD='...'
+   # kubectl -n inventario-seguro create secret generic mongo-secret
+   # kubectl -n inventario-seguro create secret generic jwt-secret --from-literal=JWT_SECRET='...'
    kubectl apply -f k8s/storage/mongodb-pvc.yaml -f k8s/deployments/mongodb.yaml -f k8s/services/mongodb.yaml
    kubectl apply -f k8s/deployments/inventario-web.yaml -f k8s/services/inventario-web.yaml
    kubectl apply -f k8s/ingress/inventario-ingress.yaml
    kubectl apply -f k8s/ingress/ingress-nginx-nodeport.yaml   # abre el 30443 hacia el controlador
    ```
-4. **Configurar pfSense** (port forward `WAN:443 → 192.168.10.40:30443`, ver 6.5) y **probar pegarle al 30443 SIN políticas aún** → debe responder. Si no responde acá, el problema es de conectividad/NodePort, no de Calico.
+4. **Configurar pfSense** (port forward `WAN:443 → 192.168.56.103:30443`, ver 6.5) y **probar pegarle al 30443 SIN políticas aún** → debe responder. Si no responde acá, el problema es de conectividad/NodePort, no de Calico.
 5. **Aplicar las NetworkPolicies** —la denegación total y los cuatro permisos **juntos** (ver 6.1.3):
    ```bash
    kubectl apply -f k8s/network-policies/
@@ -537,7 +542,7 @@ El despliegue sigue un orden pensado para **probar conectividad primero y restri
 
 > **Tres advertencias clave:**
 > 1. **Calico va al inicio.** Si arrancás Minikube sin `--cni=calico` y después querés Calico, hay que **recrear el clúster** desde cero.
-> 2. **El NodePort debe ser alcanzable en la IP LAN de la VM4** (`192.168.10.40`). Según el driver de Minikube (ej. `docker`), el NodePort puede quedar en la IP interna de Minikube y no en la de la VM; en ese caso usar `--driver=none`, `minikube tunnel` o un reenvío dentro de la VM4.
+> 2. **El NodePort debe ser alcanzable en la IP LAN de la VM4** (`192.168.56.103`). Según el driver de Minikube (ej. `docker`), el NodePort puede quedar en la IP interna de Minikube y no en la de la VM; en ese caso usar `--driver=none`, `minikube tunnel` o un reenvío dentro de la VM4.
 > 3. **Al aplicar `default-deny-all`, el 30443 deja de responder** hasta que también esté `allow-ingress-to-web`. Aplicar la denegación y los permisos en un solo paso (paso 5), nunca la denegación sola.
 
 ---
@@ -929,7 +934,7 @@ npm install
 npm run dev        # http://localhost:3000
 ```
 
-Credenciales por defecto para el login: `admin` / `admin123` (o cualquier usuario/contraseña mientras el LDAP real esté pendiente).
+Para el login en modo desarrollo con mock (`VITE_USE_MOCK=true`): `admin` / `admin123`. En producción con LDAP real, usar credenciales de Active Directory (ver tabla de usuarios en el README).
 
 ---
 
@@ -956,19 +961,29 @@ spring:
 
 Esto convierte automáticamente los campos camelCase de Java (`numeroMesa`, `ramGb`, `sistemaOperativo`) a snake_case en el JSON (`numero_mesa`, `ram_gb`, `sistema_operativo`), alineándose con la convención del frontend.
 
-### 13.3 Autenticación (mock JWT)
+### 13.3 Autenticación (LDAP + JWT)
 
-El endpoint `POST /api/auth/login` devuelve un token de sesión. La integración con el servidor LDAP real (OpenLDAP / Active Directory) está pendiente; por ahora, el endpoint acepta cualquier credencial y retorna un token aleatorio:
+El endpoint `POST /api/auth/login` autentica al usuario contra el servidor Active Directory/LDAP de la VM 2 y devuelve un token JWT firmado con HMAC-SHA.
 
+El flujo implementado en `AuthController` → `LdapAuthenticationService` → `RoleMapper` → `JwtService` es:
+
+1. `LdapAuthenticationService.authenticateAndGetGroups(username, password)` valida las credenciales contra el LDAP configurado en `application.yml` (`ldap://192.168.56.102:389`).
+2. Si la autenticación es exitosa, se obtienen los grupos del usuario por dos métodos complementarios: el atributo `memberOf` del usuario (común en AD) y una búsqueda reversa por el DN del usuario en la OU de laboratorios.
+3. `RoleMapper` traduce los grupos de AD a roles internos de Spring Security (ver tabla en sección 6.3).
+4. `JwtService` genera un token JWT con el username y los roles como claims, firmado con HMAC-SHA y con expiración configurable (por defecto 24 horas).
+
+Respuesta exitosa:
 ```json
 {
-  "username": "admin",
-  "token": "mock-jwt-uuid-generado",
-  "role": "ADMIN"
+  "username": "osmelmata",
+  "token": "eyJhbGciOiJIUzI1NiJ9...",
+  "role": "EDITOR"
 }
 ```
 
-El rol se determina según el username: `admin` → `ADMIN`, cualquier otro → `TECNICO`.
+Si las credenciales son incorrectas, retorna HTTP 401 con mensaje de error. Si faltan `username` o `password` en el body, retorna HTTP 400.
+
+El `JwtFilter` intercepta todas las solicitudes posteriores: extrae el token del header `Authorization: Bearer <token>`, lo valida y carga el `SecurityContext` con el usuario y sus roles para que los `@PreAuthorize` de los controllers puedan evaluar los permisos.
 
 ### 13.4 Validación del contrato de API
 
@@ -976,7 +991,7 @@ La integración fue verificada con Playwright (Chromium headless):
 
 | Check | Resultado |
 |---|---|
-| Login con `admin/admin123` | ✅ `POST /api/auth/login → 200` |
+| Login con credenciales LDAP válidas | ✅ `POST /api/auth/login → 200` (JWT + role) |
 | Dashboard carga máquinas reales | ✅ `GET /api/maquinas → 200` |
 | Lista de personas para selector | ✅ `GET /api/personas → 200` |
 | Crear máquina desde formulario | ✅ `POST /api/maquinas → 201` |
@@ -1017,10 +1032,10 @@ Se implementaron **17 tests** divididos en tres niveles, sin requerir bases de d
 - `PUT /api/maquinas/{id}` → 200
 - `DELETE /api/maquinas/{id}` → 204
 
-**AuthControllerTest** — autenticación:
-- Usuario `admin` → role `ADMIN`
-- Cualquier otro usuario → role `TECNICO`
-- Body vacío → respuesta 200 con token
+**AuthControllerTest** — autenticación LDAP:
+- Usuario del grupo `Grupo_BD_Laboratorio_A` → role `ADMIN`, token JWT válido
+- Usuario del grupo `Grupo_BD_Laboratorio_R` → role `READONLY`
+- Body vacío (sin username/password) → respuesta 400 Bad Request
 
 ### 14.3 Ejecutar los tests
 

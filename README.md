@@ -51,12 +51,10 @@ flowchart TB
 
 | Servicio | Rol | Puerto |
 |----------|-----|--------|
-| `inventario-web` | Interfaz y lógica de aplicación | _Por definir_ |
-| `ubicacion-db` | Ubicación, responsables, mantenimiento | _Por definir_ |
-| `inventario-db` | Hardware y componentes internos | _Por definir_ |
-| `ldap-service` | Autenticación institucional | _Por definir_ |
-
-<!-- TODO: Diagrama de red, NetworkPolicies y reglas de firewall -->
+| `inventario-web` | Interfaz y lógica de aplicación (Spring Boot + React) | 8080 |
+| `ubicacion-db` | Ubicación, responsables, mantenimiento (SQL Server, VM externa) | 1433 |
+| `inventario-db` | Hardware y componentes internos (MongoDB) | 27017 |
+| `ldap-service` | Autenticación institucional (Active Directory, VM externa) | 389 / 636 |
 
 ---
 
@@ -65,7 +63,7 @@ flowchart TB
 | Capa | Tecnologías |
 |------|-------------|
 | **Backend** | Spring Boot, Java |
-| **Frontend** | _Por definir_ |
+| **Frontend** | React 19, TypeScript, Vite 6, Tailwind CSS 4 |
 | **Datos** | SQL Server / MySQL, MongoDB |
 | **Identidad** | Active Directory / LDAP |
 | **Infraestructura** | Docker, Kubernetes (Minikube), Calico |
@@ -78,26 +76,51 @@ flowchart TB
 ```
 egi-inventario-seguro/
 ├── app/
-│   └── inventario-web/           # Spring Boot (API REST + Frontend)
+│   └── inventario-web/                # Spring Boot (API REST + Frontend embebido)
+│       ├── Dockerfile                 # Multi-stage: Maven build + JRE Alpine
 │       ├── pom.xml
+│       ├── frontend/                  # React 19 + Vite + Tailwind CSS
+│       │   ├── src/
+│       │   │   ├── components/        # LoginScreen, MaquinaDetailDrawer, MaquinaCrudModal
+│       │   │   ├── services/          # api.ts, authService.ts, maquinaService.ts
+│       │   │   └── types.ts           # Tipos TypeScript del dominio
+│       │   ├── package.json
+│       │   └── vite.config.ts
 │       └── src/
 │           ├── main/
 │           │   ├── java/com/itu/egi/inventarioseguro/
-│           │   │   ├── config/   # DataSourceConfig (JPA + MongoDB)
-│           │   │   ├── model/    # Entidades JPA, documento MongoDB, enums
-│           │   │   ├── repository/sql/    # Repos JPA
-│           │   │   ├── repository/mongo/  # Repos MongoDB
-│           │   │   ├── dto/      # DTOs de request y response
-│           │   │   ├── service/  # Lógica de negocio
-│           │   │   └── controller/ # Endpoints REST /api/*
+│           │   │   ├── config/        # DataSourceConfig (JPA + MongoDB), SecurityConfig, CorsConfig
+│           │   │   ├── model/         # Entidades JPA, documento MongoDB, enums
+│           │   │   ├── repository/sql/    # Repos JPA (Persona, Maquina, PersonaMaquina)
+│           │   │   ├── repository/mongo/  # Repos MongoDB (MaquinaHardware)
+│           │   │   ├── dto/           # DTOs de request y response
+│           │   │   ├── security/      # JwtService, JwtFilter, LdapAuthenticationService, RoleMapper
+│           │   │   ├── service/       # Lógica de negocio
+│           │   │   └── controller/    # Endpoints REST /api/* + SpaController
 │           │   └── resources/
 │           │       ├── application.yml
-│           │       └── db/migration/  # Flyway V1–V4
-│           └── test/
-├── docs/                         # Informe, diagramas
+│           │       ├── db/migration/  # Flyway V1–V4
+│           │       └── static/        # Frontend compilado (generado por maven build)
+│           └── test/                  # 17 tests: service, controller, auth
+├── docker-compose.yml                 # Producción: app + MongoDB (SQL Server en VM externa)
+├── docker-compose.dev.yml             # Desarrollo: SQL Server + MongoDB en Docker
+├── docker/
+│   └── sqlserver/init.sql             # Creación de BD para compose de desarrollo
+├── docs/                              # Informe técnico, diagramas PNG
+├── k8s/                               # Manifiestos Kubernetes
+│   ├── namespace.yaml
+│   ├── configmap.yaml
+│   ├── deployments/                   # inventario-web, mongodb
+│   ├── services/                      # inventario-web, mongodb
+│   ├── ingress/                       # inventario-ingress, ingress-nginx-nodeport
+│   ├── network-policies/              # default-deny-all + 3 allow rules
+│   └── storage/                       # mongodb-pvc
+├── firewall/
+│   └── reglas_pfsense.md              # Diseño de red pfSense, configuración paso a paso
 ├── migraciones/
-│   ├── sql/                      # V1–V4 (referencia)
-│   └── mongodb/                  # Schema de colección
+│   ├── sql/                           # V0–V4 (referencia, también en resources/db/migration)
+│   └── mongodb/                       # Schema, seed, demo CRUD
+├── .env.example                       # Plantilla de variables para docker compose
 └── README.md
 ```
 
@@ -250,13 +273,12 @@ docker compose exec -T mongodb mongosh inventario_egi --quiet < migraciones/mong
 | POST | `/api/maquinas` | Crear máquina | ✓ EDITOR |
 | PUT | `/api/maquinas/{id}` | Actualizar máquina | ✓ EDITOR |
 | DELETE | `/api/maquinas/{id}` | Eliminar máquina | ✓ ADMIN |
-| GET | `/api/maquinas/{id}/personas` | Personas asignadas | ✓ JWT |
 | GET | `/api/personas` | Listar personas | ✓ JWT |
-| POST | `/api/personas` | Crear persona | ✓ EDITOR |
-| PUT | `/api/personas/{id}` | Actualizar persona | ✓ EDITOR |
+| POST | `/api/personas` | Crear persona | ✓ ADMIN |
+| PUT | `/api/personas/{id}` | Actualizar persona | ✓ ADMIN |
 | DELETE | `/api/personas/{id}` | Eliminar persona | ✓ ADMIN |
 | POST | `/api/asignaciones` | Asignar máquina a persona | ✓ EDITOR |
-| DELETE | `/api/asignaciones/{personaId}/{maquinaId}` | Desasignar | ✓ ADMIN |
+| DELETE | `/api/asignaciones/{personaId}/{maquinaId}` | Desasignar | ✓ EDITOR |
 
 ---
 
@@ -269,10 +291,10 @@ docker compose exec -T mongodb mongosh inventario_egi --quiet < migraciones/mong
                       |
                   pfSense (VM1)
                       |
-            Red interna "egi-lan" (192.168.1.0/24)
+            Red interna "egi-lan" (192.168.56.0/24)
          /              |              |              \
     Windows-AD      Windows-SQL    Ubuntu VM4      pfSense WAN
-    (192.168.1.10)  (192.168.1.20) (192.168.1.40)  (VirtualBox NAT)
+    (192.168.56.102)  (192.168.56.101) (192.168.56.103)  (VirtualBox NAT)
     LDAP (389)      SQL (1433)      Minikube
     DNS (53)                        NodePort 30443
 ```
@@ -351,11 +373,11 @@ Cliente WAN → pfSense WAN:443 → [NAT] → Ubuntu:30443 → ingress-nginx →
 
 1. **Interfaces**:
    - **WAN**: Adaptador puente o NAT (salida a internet)
-   - **LAN**: Red interna `egi-lan`, IP `192.168.1.1/24`
+   - **LAN**: Red interna `egi-lan`, IP `192.168.56.1/24`
 
 2. **DHCP + Outbound NAT** (ya configurado):
-   - DHCP en LAN: `192.168.1.100`–`192.168.1.200`
-   - Outbound NAT: enmascara `192.168.1.0/24` por WAN
+   - DHCP en LAN: `192.168.56.100`–`192.168.56.200`
+   - Outbound NAT: enmascara `192.168.56.0/24` por WAN
 
 3. **Bloqueo de redes privadas**: DESHABILITADO en WAN (permite NAT desde redes privadas)
 
@@ -364,7 +386,7 @@ Cliente WAN → pfSense WAN:443 → [NAT] → Ubuntu:30443 → ingress-nginx →
    - Protocolo: **TCP**
    - Destino: **WAN address**
    - Puerto destino: **443**
-   - Redirect IP: **192.168.1.40** (Ubuntu VM4)
+   - Redirect IP: **192.168.56.103** (Ubuntu VM4)
    - Redirect puerto: **30443**
    - Crear regla de firewall asociada: ✓
 
@@ -374,9 +396,9 @@ Cliente WAN → pfSense WAN:443 → [NAT] → Ubuntu:30443 → ingress-nginx →
 
 ### Configuración de VM SQL Server y AD
 
-- **SQL Server** (192.168.1.20:1433): Base de datos `inventario_egi`, usuario `sa`
-- **Windows-AD** (192.168.1.10:389): LDAP, usuarios en `OU=Users,OU=ITU,DC=itu,DC=local`
-- **DNS**: Apunta a Windows-AD (192.168.1.10)
+- **SQL Server** (192.168.56.101:1433): Base de datos `inventario_egi`, usuario `sa`
+- **Windows-AD** (192.168.56.102:389): LDAP, usuarios en `OU=Users,OU=ITU,DC=itu,DC=local`
+- **DNS**: Apunta a Windows-AD (192.168.56.102)
 
 ### Verificación end-to-end
 
@@ -398,7 +420,7 @@ kubectl logs -n inventario-seguro deployment/inventario-web | grep -i ldap
 
 > **Puntos críticos:**
 > 1. **Calico OBLIGATORIO** en `minikube start --cni=calico`. Agregarlo después no funciona.
-> 2. **NodePort 30443 debe ser accesible** en la IP de Ubuntu (192.168.1.40). `kubectl port-forward --address=0.0.0.0` lo expone correctamente.
+> 2. **NodePort 30443 debe ser accesible** en la IP de Ubuntu (192.168.56.103). `kubectl port-forward --address=0.0.0.0` lo expone correctamente.
 > 3. **pfSense desbloquea redes privadas en WAN** (sin esto, NAT no funciona).
 > 4. **Secrets no están en el repo** (seguridad). Crearlos a mano antes de desplegar la app.
 > 5. **CORS** configurado dinámicamente desde `CORS_ALLOWED_ORIGINS` en configmap (ver `SecurityConfig.java`).
@@ -525,9 +547,7 @@ Para levantar el sistema desde cero:
 
 ## Licencia
 
-<!-- TODO: Definir licencia si aplica -->
-
-_Por definir._
+Proyecto académico — Instituto Tecnológico Universitario (ITU), 2026.
 
 ---
 

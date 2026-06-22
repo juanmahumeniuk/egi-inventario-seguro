@@ -7,7 +7,7 @@ spring:
     name: inventario-seguro
 
   datasource:
-    url: ${DB_URL:jdbc:sqlserver://192.168.1.20:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true}
+    url: ${DB_URL:jdbc:sqlserver://192.168.56.101:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true}
     username: ${DB_USER:sa}
     password: ${DB_PASSWORD:Itu12345!}
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
@@ -33,7 +33,7 @@ spring:
     property-naming-strategy: SNAKE_CASE
 
   ldap:
-    urls: ldap://192.168.1.10:389
+    urls: ldap://192.168.56.102:389
     base: dc=itu,dc=local
     username: cn=Administrador,cn=Users,dc=itu,dc=local
     password: Itu12345!
