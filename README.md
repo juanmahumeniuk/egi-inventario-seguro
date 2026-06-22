@@ -291,10 +291,10 @@ docker compose exec -T mongodb mongosh inventario_egi --quiet < migraciones/mong
                       |
                   pfSense (VM1)
                       |
-            Red interna "egi-lan" (192.168.56.0/24)
+            Red interna "egi-lan" (192.168.10.0/24)
          /              |              |              \
     Windows-AD      Windows-SQL    Ubuntu VM4      pfSense WAN
-    (192.168.56.102)  (192.168.56.101) (192.168.56.103)  (VirtualBox NAT)
+    (192.168.10.102)  (192.168.10.101) (192.168.10.103)  (VirtualBox NAT)
     LDAP (389)      SQL (1433)      Minikube
     DNS (53)                        NodePort 30443
 ```
@@ -373,11 +373,11 @@ Cliente WAN → pfSense WAN:443 → [NAT] → Ubuntu:30443 → ingress-nginx →
 
 1. **Interfaces**:
    - **WAN**: Adaptador puente o NAT (salida a internet)
-   - **LAN**: Red interna `egi-lan`, IP `192.168.56.1/24`
+   - **LAN**: Red interna `egi-lan`, IP `192.168.10.1/24`
 
 2. **DHCP + Outbound NAT** (ya configurado):
-   - DHCP en LAN: `192.168.56.100`–`192.168.56.200`
-   - Outbound NAT: enmascara `192.168.56.0/24` por WAN
+   - DHCP en LAN: `192.168.10.150`–`192.168.10.200`
+   - Outbound NAT: enmascara `192.168.10.0/24` por WAN
 
 3. **Bloqueo de redes privadas**: DESHABILITADO en WAN (permite NAT desde redes privadas)
 
@@ -386,7 +386,7 @@ Cliente WAN → pfSense WAN:443 → [NAT] → Ubuntu:30443 → ingress-nginx →
    - Protocolo: **TCP**
    - Destino: **WAN address**
    - Puerto destino: **443**
-   - Redirect IP: **192.168.56.103** (Ubuntu VM4)
+   - Redirect IP: **192.168.10.103** (Ubuntu VM4)
    - Redirect puerto: **30443**
    - Crear regla de firewall asociada: ✓
 
@@ -396,9 +396,9 @@ Cliente WAN → pfSense WAN:443 → [NAT] → Ubuntu:30443 → ingress-nginx →
 
 ### Configuración de VM SQL Server y AD
 
-- **SQL Server** (192.168.56.101:1433): Base de datos `inventario_egi`, usuario `sa`
-- **Windows-AD** (192.168.56.102:389): LDAP, usuarios en `OU=Users,OU=ITU,DC=itu,DC=local`
-- **DNS**: Apunta a Windows-AD (192.168.56.102)
+- **SQL Server** (192.168.10.101:1433): Base de datos `inventario_egi`, usuario `sa`
+- **Windows-AD** (192.168.10.102:389): LDAP, usuarios en `OU=Users,OU=ITU,DC=itu,DC=local`
+- **DNS**: Apunta a Windows-AD (192.168.10.102)
 
 ### Verificación end-to-end
 
@@ -409,18 +409,22 @@ kubectl exec -it <pod-inventario-web> -n inventario-seguro -- \
   -H "Content-Type: application/json" \
   -d '{"username":"osmelmata","password":"Itu12345!"}'
 
-# 2. Desde Windows-AD o host cliente: test del port forward de pfSense
-curl -k -H "Host: inventario.itu.local" https://192.168.0.136:30443/api/auth/login
+# 2. Desde Ubuntu (verifica que el login funciona con las IPs de egi-lan)
+curl -k -s -X POST https://localhost:30443/api/auth/login \
+  -H "Host: inventario.itu.local" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"osmelmata","password":"Itu12345!"}' | python3 -m json.tool
 
-# 3. En browser: https://inventario.itu.local:30443 (con hosts entry)
+# 3. En browser: https://inventario.itu.local:30443 (con hosts entry — ver sección Acceso externo)
 
 # 4. NetworkPolicies: verificar que pods NO pueden alcanzar servicios no autorizados
-kubectl logs -n inventario-seguro deployment/inventario-web | grep -i ldap
+kubectl exec -n inventario-seguro deployment/mongodb -- \
+  timeout 3 bash -c "echo > /dev/tcp/8.8.8.8/443" 2>&1 || echo "BLOQUEADO (correcto)"
 ```
 
 > **Puntos críticos:**
 > 1. **Calico OBLIGATORIO** en `minikube start --cni=calico`. Agregarlo después no funciona.
-> 2. **NodePort 30443 debe ser accesible** en la IP de Ubuntu (192.168.56.103). `kubectl port-forward --address=0.0.0.0` lo expone correctamente.
+> 2. **NodePort 30443 debe ser accesible** en la IP de Ubuntu (192.168.10.103). `kubectl port-forward --address=0.0.0.0` lo expone correctamente.
 > 3. **pfSense desbloquea redes privadas en WAN** (sin esto, NAT no funciona).
 > 4. **Secrets no están en el repo** (seguridad). Crearlos a mano antes de desplegar la app.
 > 5. **CORS** configurado dinámicamente desde `CORS_ALLOWED_ORIGINS` en configmap (ver `SecurityConfig.java`).
@@ -545,12 +549,40 @@ Para levantar el sistema desde cero:
 
 5. **Agregar hosts entry en Windows** (solo la primera vez, en PowerShell como admin):
    ```powershell
-   Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "127.0.0.1`tinventario.itu.local"
+   # En la máquina anfitriona (donde corren las VMs):
+   Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "127.0.0.1 inventario.itu.local"
    ```
 
 6. **Acceder al sistema**:
    - Frontend: `https://inventario.itu.local:30443` (aceptar certificado autofirmado)
    - API directa: `https://inventario.itu.local:30443/api/auth/login`
+
+---
+
+## Acceso externo (desde otra computadora en la misma red)
+
+El Ubuntu VM expone el puerto 30443 via **VirtualBox NAT port forward**, por lo tanto el acceso externo se hace a través de la IP física del anfitrión.
+
+**En la máquina del profesor o evaluador** (PowerShell como admin):
+```powershell
+# Reemplazar 172.22.75.148 por la IP real del anfitrión (ipconfig)
+Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "172.22.75.148 inventario.itu.local"
+```
+
+Luego abrir en el browser:
+```
+https://inventario.itu.local:30443
+```
+
+> **Nota**: la IP del anfitrión puede cambiar si se reconecta a otra red. Verificar con `ipconfig` y actualizar el hosts en la máquina del evaluador si es necesario.
+
+### Usuarios disponibles para demo
+
+| Usuario | Contraseña | Rol | Puede |
+|---------|-----------|-----|-------|
+| `osmelmata` | `Itu12345!` | EDITOR | Ver, crear, editar |
+| `juanperez` | `Itu12345!` | ADMIN | Todo, incluido eliminar |
+| `lucianofedericci` | `Itu12345!` | READONLY | Solo ver |
 
 ## Equipo
 
