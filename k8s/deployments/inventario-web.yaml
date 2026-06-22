@@ -13,10 +13,12 @@ spec:
       labels:
         app: inventario-web
     spec:
+      imagePullSecrets:
+        - name: ghcr-secret
       containers:
       - name: inventario-web
-        image: inventario-web:latest
-        imagePullPolicy: IfNotPresent
+        image: ghcr.io/juanmahumeniuk/inventario-web:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
         envFrom:
@@ -30,3 +32,13 @@ spec:
             name: mongo-secret
         - secretRef:
             name: jwt-secret
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5

@@ -428,6 +428,47 @@ kubectl logs -n inventario-seguro deployment/inventario-web | grep -i ldap
 
 ---
 
+## Despliegue continuo (GitHub Actions)
+
+Cada push a `main` dispara [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml):
+
+1. **Build & test** — `mvn verify` en `app/inventario-web/`
+2. **Push** — imagen Docker a `ghcr.io/<owner>/inventario-web:<sha>` y `:latest`
+3. **Deploy** — SSH a la VM → `git pull` → [`scripts/deploy-k8s.sh`](./scripts/deploy-k8s.sh)
+
+### Secrets de GitHub (Settings → Secrets and variables → Actions)
+
+| Secret | Descripción |
+|--------|-------------|
+| `DEPLOY_HOST` | IP o hostname de la VM con Kubernetes (ej. `192.168.56.103`) |
+| `DEPLOY_USER` | Usuario SSH (ej. `deploy`) |
+| `DEPLOY_SSH_KEY` | Clave privada PEM para autenticación SSH |
+| `DEPLOY_PATH` | *(opcional)* Ruta del clone en la VM; default: `/opt/almacenamiento-seguro` |
+
+> Hasta configurar estos secrets, el job `deploy` fallará en la conexión SSH. El job `build-and-push` funciona de forma independiente.
+
+### Bootstrap one-time en la VM
+
+1. Clonar el repo en `DEPLOY_PATH` y asegurar acceso SSH desde GitHub Actions.
+2. Iniciar Minikube con Calico e ingress (ver sección anterior).
+3. Crear los secrets de Kubernetes (`sql-secret`, `ldap-secret`, `mongo-secret`, `jwt-secret`).
+4. Crear el secret para pull de GHCR (omitir si el paquete es **público**):
+
+   ```bash
+   kubectl -n inventario-seguro create secret docker-registry ghcr-secret \
+     --docker-server=ghcr.io \
+     --docker-username=<github-user> \
+     --docker-password=<PAT-con-read:packages>
+   ```
+
+5. Verificar que `kubectl` apunta al clúster correcto (`kubectl config current-context`).
+
+Para relanzar el despliegue manualmente: **Actions → Deploy → Run workflow**.
+
+> **Nota:** los secrets K8s `ldap-secret` y `jwt-secret` requieren que `application.yml` use variables de entorno (`SPRING_LDAP_USERNAME`, `SPRING_LDAP_PASSWORD`, `APP_SECURITY_JWT_SECRET`) para inyectarse correctamente. Hasta alinear esos nombres, la app usa los valores hardcodeados del YAML.
+
+---
+
 ## Estado actual (2026-06-22)
 
 ✅ **Sistema completamente validado en producción (pruebas E2E 2026-06-22):**
