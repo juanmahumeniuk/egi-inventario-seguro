@@ -376,7 +376,7 @@ Cliente WAN → pfSense WAN:443 → [NAT] → Ubuntu:30443 → ingress-nginx →
    - **LAN**: Red interna `egi-lan`, IP `192.168.10.1/24`
 
 2. **DHCP + Outbound NAT** (ya configurado):
-   - DHCP en LAN: `192.168.10.100`–`192.168.10.200`
+   - DHCP en LAN: `192.168.10.150`–`192.168.10.200`
    - Outbound NAT: enmascara `192.168.10.0/24` por WAN
 
 3. **Bloqueo de redes privadas**: DESHABILITADO en WAN (permite NAT desde redes privadas)

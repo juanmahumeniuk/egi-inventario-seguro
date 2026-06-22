@@ -33,7 +33,7 @@ del laboratorio (LAN), donde viven el resto de las VMs.
 | VM2 — AD / DNS           | `192.168.10.102`           |
 | VM3 — SQL Server         | `192.168.10.101`           |
 | VM4 — Kubernetes         | `192.168.10.103`           |
-| Rango DHCP de la LAN     | `192.168.10.100–.200`     |
+| Rango DHCP de la LAN     | `192.168.10.150–.200`     |
 | Puerto Ingress (NodePort)| `30443`                  |
 
 ---
@@ -64,7 +64,7 @@ Al primer arranque de pfSense por consola:
 3. Opción **2) Set interface(s) IP address**:
    - **WAN** → DHCP.
    - **LAN** → IP estática `192.168.10.1`, máscara `/24`.
-     Activar el **servidor DHCP** de la LAN con rango `192.168.10.100`–`192.168.10.200`.
+     Activar el **servidor DHCP** de la LAN con rango `192.168.10.150`–`192.168.10.200`.
 4. VMs internas: DHCP, o IP estática de la tabla con gateway `192.168.10.1` y
    DNS → `192.168.10.102` (VM2).
 
