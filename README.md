@@ -409,13 +409,17 @@ kubectl exec -it <pod-inventario-web> -n inventario-seguro -- \
   -H "Content-Type: application/json" \
   -d '{"username":"osmelmata","password":"Itu12345!"}'
 
-# 2. Desde Windows-AD o host cliente: test del port forward de pfSense
-curl -k -H "Host: inventario.itu.local" https://192.168.0.136:30443/api/auth/login
+# 2. Desde Ubuntu (verifica que el login funciona con las IPs de egi-lan)
+curl -k -s -X POST https://localhost:30443/api/auth/login \
+  -H "Host: inventario.itu.local" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"osmelmata","password":"Itu12345!"}' | python3 -m json.tool
 
-# 3. En browser: https://inventario.itu.local:30443 (con hosts entry)
+# 3. En browser: https://inventario.itu.local:30443 (con hosts entry — ver sección Acceso externo)
 
 # 4. NetworkPolicies: verificar que pods NO pueden alcanzar servicios no autorizados
-kubectl logs -n inventario-seguro deployment/inventario-web | grep -i ldap
+kubectl exec -n inventario-seguro deployment/mongodb -- \
+  timeout 3 bash -c "echo > /dev/tcp/8.8.8.8/443" 2>&1 || echo "BLOQUEADO (correcto)"
 ```
 
 > **Puntos críticos:**
@@ -504,12 +508,40 @@ Para levantar el sistema desde cero:
 
 5. **Agregar hosts entry en Windows** (solo la primera vez, en PowerShell como admin):
    ```powershell
-   Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "127.0.0.1`tinventario.itu.local"
+   # En la máquina anfitriona (donde corren las VMs):
+   Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "127.0.0.1 inventario.itu.local"
    ```
 
 6. **Acceder al sistema**:
    - Frontend: `https://inventario.itu.local:30443` (aceptar certificado autofirmado)
    - API directa: `https://inventario.itu.local:30443/api/auth/login`
+
+---
+
+## Acceso externo (desde otra computadora en la misma red)
+
+El Ubuntu VM expone el puerto 30443 via **VirtualBox NAT port forward**, por lo tanto el acceso externo se hace a través de la IP física del anfitrión.
+
+**En la máquina del profesor o evaluador** (PowerShell como admin):
+```powershell
+# Reemplazar 172.22.75.148 por la IP real del anfitrión (ipconfig)
+Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "172.22.75.148 inventario.itu.local"
+```
+
+Luego abrir en el browser:
+```
+https://inventario.itu.local:30443
+```
+
+> **Nota**: la IP del anfitrión puede cambiar si se reconecta a otra red. Verificar con `ipconfig` y actualizar el hosts en la máquina del evaluador si es necesario.
+
+### Usuarios disponibles para demo
+
+| Usuario | Contraseña | Rol | Puede |
+|---------|-----------|-----|-------|
+| `osmelmata` | `Itu12345!` | EDITOR | Ver, crear, editar |
+| `juanperez` | `Itu12345!` | ADMIN | Todo, incluido eliminar |
+| `lucianofedericci` | `Itu12345!` | READONLY | Solo ver |
 
 ## Equipo
 
