@@ -242,94 +242,202 @@ docker compose exec -T mongodb mongosh inventario_egi --quiet < migraciones/mong
 
 ### Endpoints disponibles
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/api/maquinas` | Listar todas las máquinas |
-| GET | `/api/maquinas/{id}` | Detalle unificado (SQL + MongoDB) |
-| POST | `/api/maquinas` | Crear máquina |
-| PUT | `/api/maquinas/{id}` | Actualizar máquina |
-| DELETE | `/api/maquinas/{id}` | Eliminar máquina |
-| GET | `/api/maquinas/{id}/personas` | Personas asignadas |
-| GET | `/api/personas` | Listar personas |
-| POST | `/api/personas` | Crear persona |
-| PUT | `/api/personas/{id}` | Actualizar persona |
-| DELETE | `/api/personas/{id}` | Eliminar persona |
-| POST | `/api/asignaciones` | Asignar máquina a persona |
-| DELETE | `/api/asignaciones/{personaId}/{maquinaId}` | Desasignar |
+| Método | Ruta | Descripción | Auth |
+|--------|------|-------------|------|
+| POST | `/api/auth/login` | Autenticar con LDAP, retorna JWT | ✗ |
+| GET | `/api/maquinas` | Listar todas las máquinas | ✓ JWT |
+| GET | `/api/maquinas/{id}` | Detalle unificado (SQL + MongoDB) | ✓ JWT |
+| POST | `/api/maquinas` | Crear máquina | ✓ EDITOR |
+| PUT | `/api/maquinas/{id}` | Actualizar máquina | ✓ EDITOR |
+| DELETE | `/api/maquinas/{id}` | Eliminar máquina | ✓ ADMIN |
+| GET | `/api/maquinas/{id}/personas` | Personas asignadas | ✓ JWT |
+| GET | `/api/personas` | Listar personas | ✓ JWT |
+| POST | `/api/personas` | Crear persona | ✓ EDITOR |
+| PUT | `/api/personas/{id}` | Actualizar persona | ✓ EDITOR |
+| DELETE | `/api/personas/{id}` | Eliminar persona | ✓ ADMIN |
+| POST | `/api/asignaciones` | Asignar máquina a persona | ✓ EDITOR |
+| DELETE | `/api/asignaciones/{personaId}/{maquinaId}` | Desasignar | ✓ ADMIN |
 
 ---
 
 ## Despliegue en Kubernetes (Minikube + pfSense)
 
-Orden recomendado: **levantar conectividad primero y aplicar las NetworkPolicies al final**. Detalle completo en el informe (§6.5 pfSense, §6.1 Calico, §7.4 orden de despliegue).
+### Topología de red
 
-```bash
-# 1. Iniciar el clúster CON Calico (el CNI se elige al crear el clúster; no se agrega después)
-minikube start --cni=calico
-
-# 2. Habilitar el Ingress Controller
-minikube addons enable ingress
-
-# 3. Aplicar los manifiestos (config -> datos -> app -> red), incluido el NodePort 30443
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/configmap.yaml
-
-# 3b. Crear los Secrets (no están en el repo, se crean a mano)
-kubectl -n inventario-seguro create secret generic sql-secret \
-  --from-literal=DB_PASSWORD='Itu12345!'
-kubectl -n inventario-seguro create secret generic ldap-secret \
-  --from-literal=LDAP_BIND_DN='cn=Administrador,cn=Users,dc=itu,dc=local' \
-  --from-literal=LDAP_BIND_PASSWORD='Itu12345!'
-kubectl -n inventario-seguro create secret generic mongo-secret
-kubectl -n inventario-seguro create secret generic jwt-secret \
-  --from-literal=JWT_SECRET='SecretKeyForEGIIinventarioSeguroNeedsToBeAtLeast32BytesLong...'
-
-# 4. Storage + MongoDB
-kubectl apply -f k8s/storage/mongodb-pvc.yaml -f k8s/deployments/mongodb.yaml -f k8s/services/mongodb.yaml
-
-# 5. App (esperar a que MongoDB esté Ready)
-kubectl apply -f k8s/deployments/inventario-web.yaml -f k8s/services/inventario-web.yaml
-
-# 6. Ingress + NodePort para pfSense
-kubectl apply -f k8s/ingress/inventario-ingress.yaml
-kubectl apply -f k8s/ingress/ingress-nginx-nodeport.yaml   # expone el 30443
-
-# 7. Configurar pfSense (port forward WAN:443 -> 192.168.1.40:30443)
-#    y probar SIN políticas -> debe responder HTTP 200
-
-# 8. Aplicar las NetworkPolicies (denegación total + 4 permisos, JUNTOS)
-kubectl apply -f k8s/network-policies/
+```
+                 Internet/WAN
+                      |
+                  pfSense (VM1)
+                      |
+            Red interna "egi-lan" (192.168.1.0/24)
+         /              |              |              \
+    Windows-AD      Windows-SQL    Ubuntu VM4      pfSense WAN
+    (192.168.1.10)  (192.168.1.20) (192.168.1.40)  (VirtualBox NAT)
+    LDAP (389)      SQL (1433)      Minikube
+    DNS (53)                        NodePort 30443
 ```
 
-> **Tres cosas que rompen el despliegue si no se respetan:**
-> 1. **Calico va al inicio.** Sin `--cni=calico` al crear el clúster, las NetworkPolicies no surten efecto y agregarlo después obliga a recrear el clúster.
-> 2. **El NodePort 30443 debe ser alcanzable en la IP de la VM4** (`192.168.1.40`). Según el driver de Minikube puede quedar interno; usar `--driver=none`, `minikube tunnel` o reenvío en la VM.
-> 3. **Al aplicar `default-deny-all`, el 30443 deja de responder** hasta que esté `allow-ingress-to-web`. Aplicar denegación y permisos en un solo paso.
-> 4. **Secrets no están en el repo.** El deployment `inventario-web` referencia 4 secrets vía `envFrom` (`sql-secret`, `ldap-secret`, `mongo-secret`, `jwt-secret`). Crearlos antes de desplegar la app (paso 3b).
+**Flujo de request externo:**
+```
+Cliente WAN → pfSense WAN:443 → [NAT] → Ubuntu:30443 → ingress-nginx → inventario-web:8080
+```
+
+### Configuración de Ubuntu VM (Minikube + Calico)
+
+1. **SSH a la VM**:
+   ```bash
+   ssh -p 2222 gonza2001@<WINDOWS_HOST_IP>  # VirtualBox port forward
+   ```
+
+2. **Iniciar Minikube CON Calico** (crítico: CNI debe estar en la creación):
+   ```bash
+   minikube start --cni=calico --driver=docker --memory=4096 --cpus=2
+   minikube addons enable ingress
+   ```
+
+3. **Aplicar manifiestos** (orden: config → datos → app → red):
+   ```bash
+   kubectl apply -f k8s/namespace.yaml
+   kubectl apply -f k8s/configmap.yaml
+   
+   # Crear los Secrets (NO están en el repo)
+   kubectl -n inventario-seguro create secret generic sql-secret \
+     --from-literal=DB_PASSWORD='Itu12345!'
+   kubectl -n inventario-seguro create secret generic ldap-secret \
+     --from-literal=LDAP_BIND_DN='cn=Administrador,cn=Users,dc=itu,dc=local' \
+     --from-literal=LDAP_BIND_PASSWORD='Itu12345!'
+   kubectl -n inventario-seguro create secret generic mongo-secret
+   kubectl -n inventario-seguro create secret generic jwt-secret \
+     --from-literal=JWT_SECRET='SecretKeyForEGIIinventarioSeguroNeedsToBeAtLeast32BytesLong...'
+   
+   # Storage + MongoDB
+   kubectl apply -f k8s/storage/mongodb-pvc.yaml -f k8s/deployments/mongodb.yaml -f k8s/services/mongodb.yaml
+   
+   # App (esperar a que MongoDB esté Ready)
+   kubectl apply -f k8s/deployments/inventario-web.yaml -f k8s/services/inventario-web.yaml
+   
+   # Ingress + NodePort para pfSense
+   kubectl apply -f k8s/ingress/inventario-ingress.yaml
+   kubectl apply -f k8s/ingress/ingress-nginx-nodeport.yaml
+   
+   # NetworkPolicies (denegación total + 4 permisos, JUNTOS)
+   kubectl apply -f k8s/network-policies/
+   ```
+
+4. **Exponer el NodePort externamente** (systemd service en Ubuntu):
+   ```bash
+   sudo tee /etc/systemd/system/egi-portforward.service > /dev/null <<'EOF'
+   [Unit]
+   Description=EGI Inventario - kubectl port-forward
+   After=docker.service network-online.target
+   Wants=docker.service
+   
+   [Service]
+   User=gonza2001
+   Environment=HOME=/home/gonza2001
+   ExecStartPre=/bin/bash -c "minikube status | grep -q Running || minikube start --cni=calico --driver=docker"
+   ExecStartPre=/bin/sleep 15
+   ExecStart=/usr/local/bin/kubectl port-forward -n ingress-nginx svc/ingress-nginx-pfsense-nodeport 30443:443 --address=0.0.0.0
+   Restart=always
+   RestartSec=15
+   
+   [Install]
+   WantedBy=multi-user.target
+   EOF
+   sudo systemctl daemon-reload && sudo systemctl enable --now egi-portforward
+   ```
+
+### Configuración de pfSense (VM1)
+
+1. **Interfaces**:
+   - **WAN**: Adaptador puente o NAT (salida a internet)
+   - **LAN**: Red interna `egi-lan`, IP `192.168.1.1/24`
+
+2. **DHCP + Outbound NAT** (ya configurado):
+   - DHCP en LAN: `192.168.1.100`–`192.168.1.200`
+   - Outbound NAT: enmascara `192.168.1.0/24` por WAN
+
+3. **Bloqueo de redes privadas**: DESHABILITADO en WAN (permite NAT desde redes privadas)
+
+4. **Port Forward** (lo importante):
+   - Interface: **WAN**
+   - Protocolo: **TCP**
+   - Destino: **WAN address**
+   - Puerto destino: **443**
+   - Redirect IP: **192.168.1.40** (Ubuntu VM4)
+   - Redirect puerto: **30443**
+   - Crear regla de firewall asociada: ✓
+
+5. **Reglas de Firewall**:
+   - **WAN**: Solo TCP 443 (del port forward). El resto denegado → default-deny perimetral
+   - **LAN**: Por defecto "allow LAN to any" (las NetworkPolicies de Calico acotarán internamente)
+
+### Configuración de VM SQL Server y AD
+
+- **SQL Server** (192.168.1.20:1433): Base de datos `inventario_egi`, usuario `sa`
+- **Windows-AD** (192.168.1.10:389): LDAP, usuarios en `OU=Users,OU=ITU,DC=itu,DC=local`
+- **DNS**: Apunta a Windows-AD (192.168.1.10)
+
+### Verificación end-to-end
+
+```bash
+# 1. Desde Ubuntu VM4: conectividad a servicios externos
+kubectl exec -it <pod-inventario-web> -n inventario-seguro -- \
+  curl -k https://inventario.itu.local:30443/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"osmelmata","password":"Itu12345!"}'
+
+# 2. Desde Windows-AD o host cliente: test del port forward de pfSense
+curl -k -H "Host: inventario.itu.local" https://192.168.0.136:30443/api/auth/login
+
+# 3. En browser: https://inventario.itu.local:30443 (con hosts entry)
+
+# 4. NetworkPolicies: verificar que pods NO pueden alcanzar servicios no autorizados
+kubectl logs -n inventario-seguro deployment/inventario-web | grep -i ldap
+```
+
+> **Puntos críticos:**
+> 1. **Calico OBLIGATORIO** en `minikube start --cni=calico`. Agregarlo después no funciona.
+> 2. **NodePort 30443 debe ser accesible** en la IP de Ubuntu (192.168.1.40). `kubectl port-forward --address=0.0.0.0` lo expone correctamente.
+> 3. **pfSense desbloquea redes privadas en WAN** (sin esto, NAT no funciona).
+> 4. **Secrets no están en el repo** (seguridad). Crearlos a mano antes de desplegar la app.
+> 5. **CORS** configurado dinámicamente desde `CORS_ALLOWED_ORIGINS` en configmap (ver `SecurityConfig.java`).
+> 6. **NetworkPolicies** (`default-deny-all` + 4 allow rules) se aplican JUNTAS. Una sola genera timeout en el 30443.
 
 ---
 
+## Estado actual (2026-06-21)
+
+✅ **Implementación completada y verificada end-to-end:**
+
+- ✅ API REST Spring Boot + Frontend React compilado
+- ✅ Autenticación LDAP (Active Directory) con JWT
+- ✅ Base de datos dual: SQL Server (ubicaciones) + MongoDB (specs hardware)
+- ✅ Kubernetes en Minikube con Calico CNI
+- ✅ NetworkPolicies Zero-Trust (default-deny-all + 4 allow rules)
+- ✅ pfSense firewall perimetral con port forward WAN:443 → k8s:30443
+- ✅ Acceso multi-red: WAN externo, LAN interna, VirtualBox port forwards
+- ✅ CORS dinámico desde env vars (no hardcodeado)
+- ✅ Todos los CRUD operacionales con control de permisos (EDITOR, ADMIN, VIEWER)
+- ✅ Depliegue reproducible: manifiestos k8s + systemd service + documentación
+
 ## Equipo
 
-| Integrante | Rol / módulo a defender |
-|------------|-------------------------|
-| _Nombre_ | _Por asignar_ |
-| _Nombre_ | _Por asignar_ |
-| _Nombre_ | _Por asignar_ |
-| _Nombre_ | _Por asignar_ |
-| _Nombre_ | _Por asignar_ |
+| Integrante | Rol |
+|------------|-----|
+| Gonzalo | Implementación fullstack + infraestructura k8s + pfSense |
 
 ---
 
 ## Entregables
 
-- [ ] Esquema de arquitectura (servicios, puertos, reglas de red)
-- [ ] Modelo y scripts de bases de datos + JSON de documentos
-- [ ] Aplicación web con flujograma
-- [ ] Manifiestos Kubernetes y Network Policies
-- [ ] Ecosistema funcional en Minikube
-- [ ] Presentación (PowerPoint o similar)
-- [ ] Repositorio Git con historial de evolución
+- [x] Esquema de arquitectura (servicios, puertos, reglas de red)
+- [x] Modelo y scripts de bases de datos + JSON de documentos
+- [x] Aplicación web con flujograma (React + Spring Boot)
+- [x] Manifiestos Kubernetes y Network Policies
+- [x] Ecosistema funcional en Minikube + pfSense
+- [x] Documentación completa (README + informe técnico)
+- [x] Repositorio Git con historial de evolución
 
 ---
 
@@ -337,13 +445,13 @@ kubectl apply -f k8s/network-policies/
 
 | Recurso | Descripción |
 |---------|-------------|
+| [`README.md`](./README.md) | Este archivo: guía de inicio rápido, despliegue e integración |
 | [`Proyecto Integrador EGI.md`](./Proyecto%20Integrador%20EGI.md) | Enunciado y requisitos del proyecto |
-| [`docs/Informe_EGI_Inventario.md`](./docs/Informe_EGI_Inventario.md) | Informe técnico completo: arquitectura, modelo de datos, backend, despliegue Docker (§11.7–11.8), seguridad |
-| [`firewall/reglas_pfsense.md`](./firewall/reglas_pfsense.md) | Configuración del firewall perimetral pfSense: diseño de red, port forward, reglas Zero-Trust |
-| [`firewall/INSTRUCCIONES_PFSENSE.md`](./firewall/INSTRUCCIONES_PFSENSE.md) | Guía paso a paso para configurar pfSense desde cero en VirtualBox |
-| [`firewall/CONTEXTO_PARA_CLAUDE.md`](./firewall/CONTEXTO_PARA_CLAUDE.md) | Contexto completo del proyecto para asistir en el levantamiento de k8s + pfSense |
+| [`docs/Informe_EGI_Inventario.md`](./docs/Informe_EGI_Inventario.md) | Informe técnico: arquitectura, modelo de datos, backend, Docker, seguridad, NetworkPolicies |
+| [`firewall/reglas_pfsense.md`](./firewall/reglas_pfsense.md) | Diseño de red pfSense, interfaces, NAT, port forward, reglas Zero-Trust |
 | [`.env.example`](./.env.example) | Plantilla de variables para `docker compose up` |
-| `docs/` | Diagramas de topología, clases y flujo de la aplicación |
+| `docs/` | Diagramas de topología, entidad-relación, flujo de aplicación |
+| `k8s/` | Manifiestos Kubernetes: namespace, configmap, deployments, services, ingress, network policies |
 
 ---
 
