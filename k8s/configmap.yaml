@@ -8,7 +8,7 @@ data:
   MONGO_URI: "mongodb://mongodb:27017/inventario_egi"
   
   # SQL Server externo (VM)
-  DB_URL: "jdbc:sqlserver://192.168.1.20:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true"
+  DB_URL: "jdbc:sqlserver://192.168.56.101:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true"
   DB_USER: "sa"
   
   # Configuración Frontend y CORS
@@ -16,3 +16,6 @@ data:
   CORS_ALLOWED_ORIGINS: "https://inventario.itu.local:30443,http://inventario.itu.local:30443"
   VITE_API_URL: "https://inventario.itu.local:30443/api"
   VITE_USE_MOCK: "false"
+
+  # LDAP / Active Directory (VM 2 - host-only 192.168.56.102)
+  SPRING_LDAP_URLS: "ldap://192.168.56.102:389"
