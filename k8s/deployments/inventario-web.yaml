@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventario-web
+  namespace: inventario-seguro
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventario-web
+  template:
+    metadata:
+      labels:
+        app: inventario-web
+    spec:
+      containers:
+      - name: inventario-web
+        image: inventario-web:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: sql-secret
+        - secretRef:
+            name: ldap-secret
+        - secretRef:
+            name: mongo-secret
+        - secretRef:
+            name: jwt-secret

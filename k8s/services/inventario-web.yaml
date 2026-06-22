@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventario-web
+  namespace: inventario-seguro
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app: inventario-web

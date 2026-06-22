@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: inventario-ingress
+  namespace: inventario-seguro
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: inventario.itu.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: inventario-web
+            port:
+              number: 8080

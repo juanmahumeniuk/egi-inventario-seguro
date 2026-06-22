@@ -4,7 +4,7 @@ El presente informe documenta el diseño, análisis y planificación del sistema
 
 El problema central que motiva este proyecto es la necesidad de la universidad de contar con un sistema centralizado y seguro para inventariar las computadoras de sus laboratorios de informática. Actualmente, la gestión del inventario de hardware y la trazabilidad de ubicación y responsabilidad de cada equipo se realizan de forma manual o descentralizada, lo que implica riesgos de pérdida de información, dificultad para auditorías y falta de visibilidad operativa.
 
-La solución propuesta contempla el desarrollo de una **aplicación web** que integre dos bases de datos heterogéneas (SQL Server y MongoDB), un servidor de identidad centralizado (Active Directory/LDAP), y un despliegue contenerizado sobre Kubernetes (Minikube), cumpliendo con estrictas políticas de seguridad perimetral simuladas mediante GUFW/pfSense.
+La solución propuesta contempla el desarrollo de una **aplicación web** que integre dos bases de datos heterogéneas (SQL Server y MongoDB) y un servidor de identidad centralizado (Active Directory/LDAP) mediante una **arquitectura híbrida** distribuida en 4 máquinas virtuales independientes, garantizando la separación de responsabilidades y simulando un entorno empresarial/institucional real protegido por un firewall perimetral.
 
 ---
 
@@ -12,15 +12,15 @@ La solución propuesta contempla el desarrollo de una **aplicación web** que in
 
 ### 2.1 Objetivo General
 
-Desarrollar un ecosistema de software seguro, contenerizado y versionado que permita inventariar las computadoras de los laboratorios del ITU, cumpliendo con los principios de mínimo privilegio, autenticación centralizada y arquitectura Zero-Trust.
+Desarrollar un ecosistema de software seguro y versionado que permita inventariar las computadoras de los laboratorios del ITU, cumpliendo con los principios de mínimo privilegio, autenticación centralizada, arquitectura Zero-Trust y separación de entornos mediante máquinas virtuales y orquestación con Kubernetes (Minikube).
 
 ### 2.2 Objetivos Específicos
 
-- Diseñar e implementar una aplicación web capaz de consultar SQL Server para obtener datos de ubicación y asignación de equipos, y MongoDB para obtener los datos de hardware.
-- Configurar un servidor Active Directory/LDAP para la autenticación centralizada de usuarios.
-- Desplegar todos los componentes del sistema de forma contenerizada mediante Docker y orquestados con Kubernetes (Minikube con CNI Calico).
-- Implementar NetworkPolicies de Kubernetes que garanticen el principio de mínimo privilegio en el tráfico de red interno del clúster.
-- Simular un perímetro de seguridad mediante GUFW/pfSense que emule el entorno de firewall universitario.
+- Diseñar e implementar una aplicación web capaz de consultar SQL Server (alojado en una VM externa dedicada) para obtener datos de ubicación y asignación de equipos, y MongoDB (contenerizado en Kubernetes) para obtener los datos de hardware.
+- Integrar la autenticación de usuarios contra un servidor Active Directory/LDAP y resolución DNS interna en una VM dedicada de Windows Server.
+- Desplegar los componentes de aplicación de forma contenerizada mediante Docker y orquestados con Kubernetes (Minikube con CNI Calico) dentro de una VM independiente.
+- Implementar NetworkPolicies en Kubernetes que garanticen el principio de mínimo privilegio en el tráfico de red interno del clúster y en la comunicación saliente a servicios externos.
+- Simular un perímetro de seguridad mediante un firewall perimetral (**pfSense**) en una VM dedicada que simule la DMZ de la red universitaria.
 - Versionar el proyecto completo en un repositorio Git con commits atómicos y organizados por responsabilidad.
 
 ---
@@ -29,54 +29,61 @@ Desarrollar un ecosistema de software seguro, contenerizado y versionado que per
 
 ### 3.1 Arquitectura General
 
-El ecosistema está compuesto por cinco servicios principales, todos desplegados dentro de un clúster Kubernetes (Minikube) en un namespace aislado denominado `inventario-seguro`:
+La solución definitiva se basa en una **arquitectura híbrida** distribuida en **4 Máquinas Virtuales (VMs) independientes** para emular un entorno de red institucional real:
 
-| Servicio | Tecnología | Puerto | Función |
+| Máquina Virtual | Tecnologías Principales | Responsabilidades / Función | Relación con el Clúster |
 |---|---|---|---|
-| `inventario-web` | Spring Boot (Frontend + API REST) | 8080 (HTTP) | Interfaz gráfica y capa de negocio |
-| `ubicacion-db` | SQL Server | 1433 (JDBC) | Datos de ubicación y asignación |
-| `inventario-db` | MongoDB | 27017 (Mongo Wire) | Datos de hardware de cada equipo |
-| `ldap-service` | OpenLDAP / Active Directory | 389 (LDAP) / 636 (LDAPS) | Autenticación institucional |
-| Firewall / DMZ | GUFW / pfSense | — | Perímetro de seguridad perimetral |
+| **VM 1: Firewall** | pfSense (FreeBSD) | Firewall perimetral y router/gateway con NAT del laboratorio, filtrado inicial de tráfico, simulación de DMZ institucional y punto de entrada seguro hacia Kubernetes. | **NO** forma parte del clúster. |
+| **VM 2: Windows Server** | Active Directory, LDAP / LDAPS, DNS | Autenticación centralizada, gestión de usuarios/grupos institucionales y resolución de nombres (DNS) interna (ej: `dc01.itu.local`, `sql01.itu.local`, `inventario.itu.local`). | **NO** forma parte del clúster. |
+| **VM 3: SQL Server** | Microsoft SQL Server | Base de datos relacional para la gestión de ubicaciones y asignaciones físicas de equipos. | **NO** forma parte del clúster. |
+| **VM 4: Kubernetes** | Minikube, Calico CNI, Ingress NGINX | Hospedar únicamente componentes de aplicación contenerizados. | **Clúster Kubernetes**. |
 
-El tráfico externo proveniente del usuario institucional ingresa vía HTTPS al perímetro (Firewall/DMZ), que filtra y reenvía las solicitudes legítimas al **Ingress Controller** del clúster Kubernetes. Desde allí, el tráfico se dirige exclusivamente al frontend (`inventario-web`), que es el único servicio con acceso a la capa de datos.
+Dentro del clúster Kubernetes (VM 4), en un namespace aislado denominado `inventario-seguro`, residen únicamente los siguientes elementos de aplicación:
+- **`inventario-web`**: Aplicación monolítica en Spring Boot que empaqueta e integra el backend REST, la seguridad JWT, la comunicación LDAP y el frontend React compiled y servido desde `src/main/resources/static`. Se despliega como un único Deployment y un único Service.
+- **MongoDB**: Base documental para las especificaciones de hardware. Permanece contenerizada con almacenamiento persistente vía PersistentVolumeClaims.
+- **Ingress NGINX**: Punto único de entrada al clúster para resolver el host `inventario.itu.local` y redirigir las peticiones al servicio `inventario-web`.
 
 ### 3.2 Diagrama de Topología del Sistema
 
 ```mermaid
 graph TD
     U([Usuario Institucional])
-    FW["Perímetro Zero-Trust\nFirewall / DMZ\n(GUFW · pfSense)"]
-    IC["Ingress Controller\n(Kubernetes)"]
 
-    subgraph NS["Namespace: inventario-seguro"]
-        FE["inventario-web\nSpring Boot · Frontend + API"]
-        
-        subgraph DATA["Capa de Datos"]
-            SQL["ubicacion-db\nSQL Server\n:1433"]
-            MONGO["inventario-db\nMongoDB\n:27017"]
-        end
-        
-        LDAP["ldap-service\nActive Directory / LDAP\n:389 / :636"]
+    subgraph VM1["VM 1: Firewall (pfSense)"]
+        FW["Firewall Perimetral\n(Simulación DMZ)"]
     end
 
-    subgraph PV["Persistencia (PersistentVolumes)"]
-        PV1[PVC sqlserver-data]
-        PV2[PVC mongodb-data]
-        PV3[PVC ldap-data]
+    subgraph VM2["VM 2: Windows Server"]
+        AD["Active Directory / LDAP\n(Puertos :389 / :636)"]
+        DNS["DNS Server\n(Resolución interna)"]
+    end
+
+    subgraph VM3["VM 3: SQL Server"]
+        SQL["SQL Server\n(Puerto :1433)"]
+    end
+
+    subgraph VM4["VM 4: Kubernetes (Minikube + Calico)"]
+        IC["Ingress Controller\n(inventario.itu.local)"]
+        
+        subgraph NS["Namespace: inventario-seguro"]
+            FE["inventario-web\n(Spring Boot + React)"]
+            MONGO["inventario-db\n(MongoDB :27017)"]
+        end
+
+        subgraph PV["Persistencia"]
+            PV2[PVC mongodb-data]
+        end
     end
 
     U -- "HTTPS" --> FW
-    FW -- "HTTP" --> IC
+    FW -- "HTTPS" --> IC
     IC --> FE
 
+    FE -- "LDAP/LDAPS" --> AD
+    FE -- "DNS query" --> DNS
     FE -- "JDBC :1433" --> SQL
     FE -- "Mongo Wire :27017" --> MONGO
-    FE -- "LDAP/LDAPS :389/636" --> LDAP
-
-    SQL -.-> PV1
     MONGO -.-> PV2
-    LDAP -.-> PV3
 ```
 
 ---
@@ -85,7 +92,7 @@ graph TD
 
 ### 4.1 Base de Datos SQL Server — `ubicacion-db`
 
-Esta base de datos almacena la información de **ubicación física** de cada máquina y su **asignación a personas** (docentes, alumnos, técnicos responsables).
+Esta base de datos, alojada de manera externa en la **VM 3 (SQL Server)** (fuera del clúster Kubernetes), almacena la información de **ubicación física** de cada máquina y su **asignación a personas** (docentes, alumnos, técnicos responsables).
 
 #### 4.1.1 Diagrama de Clases (Modelo Relacional)
 
@@ -102,8 +109,7 @@ classDiagram
         +BIGINT id PK «IDENTITY»
         +INT numero_mesa
         +DATE fecha_mantenimiento
-        +NVARCHAR(50) aula
-        +NVARCHAR(50) laboratorio
+        +NVARCHAR(50) aula «CHECK enum»
     }
 
     class PersonaMaquina {
@@ -126,10 +132,10 @@ Representa a cualquier usuario institucional que puede tener equipos asignados: 
 
 **Maquina**
 Representa cada computadora física inventariada en los laboratorios.
-- `id`: Identificador único autoincremental. Este mismo ID se utiliza como referencia en MongoDB para recuperar los datos de hardware.
+- `id`: Identificador único autoincremental. Este mismo ID es la clave compartida con MongoDB.
 - `numero_mesa`: Número del banco o mesa dentro del aula/laboratorio.
 - `fecha_mantenimiento`: Fecha del último mantenimiento registrado.
-- `aula` / `laboratorio`: Ubicación física del equipo dentro de las instalaciones.
+- `aula`: Ubicación física del equipo. Restringida mediante constraint `CHECK` al enum `Aula`: `AULA_1y2`, `LABORATORIO_SO`, `LABORATORIO_REDES`, `AULA_4`.
 
 **PersonaMaquina** *(Tabla de relación)*
 Tabla de asociación que implementa la relación N:M entre `Persona` y `Maquina`, registrando las asignaciones temporales.
@@ -142,51 +148,76 @@ MongoDB almacena los datos de **hardware interno** de cada equipo. Se utiliza un
 
 #### 4.2.1 Estructura del Documento (Schema)
 
+El documento almacena los datos de hardware con objetos anidados para `disco` y `perifericos`, reemplazando los campos planos de String de la versión anterior.
+
 ```mermaid
 graph LR
-    DOC["Documento MongoDB\nColección: maquinas"]
-    DOC --> _id["_id: ObjectId"]
-    DOC --> maquina_id["maquina_id: Long (FK → SQL)"]
+    DOC["Documento MongoDB\nColección: maquina"]
+    DOC --> _id["_id: Long (= Maquina.id en SQL)"]
     DOC --> fabricante["fabricante: String"]
     DOC --> modelo["modelo: String"]
-    DOC --> tipo["tipo: String\n(desktop | laptop)"]
+    DOC --> tipo["tipo: String\n(DESKTOP | LAPTOP | ALL_IN_ONE)"]
     DOC --> cpu["cpu: String"]
-    DOC --> ram["ram_gb: Int"]
-    DOC --> disco["disco: Object"]
-    disco --> d_tipo["tipo: String (SSD|HDD)"]
-    disco --> d_cap["capacidad_gb: Int"]
-    DOC --> so["sistema_operativo: String"]
-    DOC --> perifericos["perifericos: Object"]
-    perifericos --> monitor["monitor: String"]
-    perifericos --> mouse["mouse: String"]
-    perifericos --> teclado["teclado: String"]
+    DOC --> ramGb["ramGb: Integer (GB)"]
+    DOC --> sistemaOperativo["sistemaOperativo: String"]
+    DOC --> disco["disco: Disco"]
+    DOC --> perifericos["perifericos: Perifericos (opcional)"]
+
+    disco --> dt["tipo: String (SSD | HDD)"]
+    disco --> dc["capacidadGb: Integer (GB)"]
+
+    perifericos --> pm["monitor: String"]
+    perifericos --> pmo["mouse: String"]
+    perifericos --> pt["teclado: String"]
 ```
 
 #### 4.2.2 Ejemplo de Documento JSON
 
 ```json
 {
-  "_id": { "$oid": "665f1a2b3c4d5e6f7a8b9c0d" },
-  "maquina_id": 42,
+  "_id": 10001,
   "fabricante": "Dell",
   "modelo": "OptiPlex 7090",
-  "tipo": "desktop",
-  "cpu": "Intel Core i7-11700",
-  "ram_gb": 16,
+  "tipo": "DESKTOP",
+  "cpu": "Intel Core i5-11500",
+  "ramGb": 16,
+  "sistemaOperativo": "Windows 11 Pro",
   "disco": {
     "tipo": "SSD",
-    "capacidad_gb": 512
+    "capacidadGb": 512
   },
-  "sistema_operativo": "Windows 10 Pro",
   "perifericos": {
     "monitor": "Dell P2422H 24\"",
     "mouse": "Dell MS116",
     "teclado": "Dell KB216"
-  }
+  },
+  "_class": "com.itu.egi.inventarioseguro.model.MaquinaHardware"
 }
 ```
 
-El campo `maquina_id` actúa como **clave foránea lógica** hacia la tabla `Maquina` de SQL Server, permitiendo que la aplicación web combine ambas fuentes de datos en una vista unificada del inventario.
+El campo `_id` del documento MongoDB es el mismo `Long` que el `id` de la tabla `Maquina` en SQL Server. Esto elimina la necesidad de un campo de referencia separado y permite que la aplicación recupere ambas fuentes de datos con una sola clave. Los campos `disco` y `perifericos` son objetos embebidos (no colecciones separadas). El campo `_class` es agregado automáticamente por Spring Data MongoDB.
+
+Notar que el documento almacenado usa los nombres de campo de las clases Java (camelCase: `ramGb`, `sistemaOperativo`) y los valores del enum en mayúsculas (`DESKTOP`), porque así persiste Spring Data MongoDB. La API REST expone estos mismos datos en snake_case y con el tipo en minúsculas (`ram_gb`, `"desktop"`), pero esa conversión ocurre en la capa Jackson del backend, no en la base.
+
+#### 4.2.3 Scripts de la colección (`migraciones/mongodb/`)
+
+| Archivo | Propósito |
+|---|---|
+| `V1__create_maquina_collection.js` | Creación inicial de la colección con validador (esquema v1, histórico) |
+| `V2__update_maquina_schema.js` | Actualiza el validador `$jsonSchema` al modelo vigente (objetos embebidos) vía `collMod` |
+| `V3__seed_maquina_documents.js` | Inserta los documentos de hardware de las máquinas seed de SQL, con estructuras variadas |
+| `documentos_maquina.json` | Los documentos seed en formato JSON plano (importable con `mongoimport`) |
+| `demo_crud.js` | Demo re-ejecutable de las operaciones de la consigna: inserts con estructuras variadas, búsquedas filtradas (campos embebidos, `$exists`, regex), `updateOne`/`updateMany` y `deleteOne`/`deleteMany` |
+
+Los scripts se ejecutan manualmente desde la línea de comandos contra la shell del contenedor, tal como exige la consigna:
+
+```bash
+docker exec -i egi-mongodb mongosh inventario_egi --quiet < migraciones/mongodb/V2__update_maquina_schema.js
+docker exec -i egi-mongodb mongosh inventario_egi --quiet < migraciones/mongodb/V3__seed_maquina_documents.js
+docker exec -i egi-mongodb mongosh inventario_egi --quiet < migraciones/mongodb/demo_crud.js
+```
+
+También es posible abrir una shell interactiva dentro del contenedor para ejecutar queries manualmente: `docker exec -it egi-mongodb mongosh inventario_egi`.
 
 ---
 
@@ -245,53 +276,189 @@ flowchart TD
 
 ## 6. Seguridad y Políticas de Red
 
-### 6.1 Modelo Zero-Trust con NetworkPolicies de Kubernetes
+### 6.1 Modelo Zero-Trust con NetworkPolicies de Kubernetes (Calico)
 
-El clúster implementa un modelo de **denegación por defecto**: todo el tráfico dentro del namespace `inventario-seguro` está bloqueado salvo que sea explícitamente permitido por una NetworkPolicy. Las reglas definidas son:
+El clúster implementa un modelo de **denegación por defecto** (`default-deny-all`) dentro del namespace `inventario-seguro`: todo el tráfico de los pods (entrante y saliente) está bloqueado salvo que sea explícitamente permitido por una NetworkPolicy.
+
+**Por qué Calico:** las NetworkPolicies son objetos estándar de la API de Kubernetes, pero **quien las hace cumplir es el plugin de red (CNI)**. El CNI por defecto de Minikube **no implementa NetworkPolicies**: si se aplican sin un CNI compatible, Kubernetes las acepta pero **no tienen ningún efecto** (el tráfico sigue pasando). Por eso el clúster se inicia obligatoriamente con **Calico** como CNI (`minikube start --cni=calico`), que sí evalúa y aplica las reglas, haciendo real el `default-deny`.
+
+#### 6.1.1 Alcance: hasta dónde llega y por qué
+
+Calico es la capa de seguridad **complementaria** a pfSense (ver 6.5). Mientras pfSense cubre el perímetro (Norte-Sur), Calico cubre la **micro-segmentación de servicios**:
+
+| Eje de tráfico | ¿Lo controla Calico? | Detalle |
+|---|---|---|
+| **Intra-clúster** — pod ↔ pod, `inventario-web` ↔ MongoDB | ✅ Sí | Ingress/egress entre pods del namespace |
+| **Egress del clúster** — `inventario-web` → SQL/LDAP/DNS (VMs externas) | ✅ Sí | Salida controlada por `allow-web-to-external-services` |
+| **Entrada al pod web** — Ingress Controller → `inventario-web` | ✅ Sí | `allow-ingress-to-web` |
+| **Perímetro** — exterior ↔ clúster, salida a internet | ❌ No | Responsabilidad de pfSense (ver 6.5) |
+
+El alcance de Calico **empieza donde termina pfSense**: pfSense deja entrar el HTTPS al clúster, y a partir de ahí Calico decide, pod por pod, qué puede hablar con qué. La razón de esta división es la misma que en 6.5: cada capa controla lo que **técnicamente puede ver** —pfSense enruta entre VMs/redes, Calico opera dentro del plano de red del clúster— y se evita tener dos fuentes de verdad para la misma regla.
+
+#### 6.1.2 Las cuatro NetworkPolicies
+
+1. **`default-deny-all`**: selecciona **todos** los pods del namespace (`podSelector: {}`) y bloquea todo el tráfico `Ingress` y `Egress`. Es la base Zero-Trust; las demás políticas abren excepciones puntuales sobre ella.
+2. **`allow-ingress-to-web`**: permite tráfico **entrante** hacia `inventario-web` (puerto **8080**) únicamente desde el Ingress Controller. Ningún otro pod puede iniciar conexión con el web.
+3. **`allow-web-to-mongodb`**: permite el **egress** de `inventario-web` y el **ingress** a `mongodb` en el puerto **27017**. MongoDB solo acepta conexiones del pod web; el Ingress no puede llegar directo a la base.
+4. **`allow-web-to-external-services`**: permite el **egress** de `inventario-web` hacia fuera del clúster para consumir los servicios de las VMs externas: **DNS (53)**, **LDAP/LDAPS (389/636)** y **SQL Server (1433)**.
 
 ```mermaid
-graph LR
-    EXT([Tráfico externo\nInternet/Intranet])
-    IC["Ingress Controller"]
-    FE["inventario-web\n(Frontend + API)"]
-    SQL["ubicacion-db\nSQL Server :1433"]
-    MONGO["inventario-db\nMongoDB :27017"]
-    LDAP["ldap-service\nLDAP :389/:636"]
+graph TD
+    EXT([Usuario / Tráfico Externo])
+    
+    subgraph VM1["VM 1: Firewall perimetral"]
+        FW["Firewall pfSense\nFiltra tráfico HTTPS"]
+    end
 
-    EXT -- "HTTPS (permitido\npor Firewall/pfSense)" --> IC
-    IC -- "HTTP :8080\n✅ Permitido" --> FE
-    FE -- "JDBC :1433\n✅ Permitido" --> SQL
-    FE -- "Wire :27017\n✅ Permitido" --> MONGO
-    FE -- "LDAP :389\n✅ Permitido" --> LDAP
+    subgraph VM4["VM 4: Kubernetes"]
+        IC["Ingress Controller"]
+        
+        subgraph NS["Namespace: inventario-seguro"]
+            FE["inventario-web\n(Spring Boot)"]
+            MONGO["inventario-db\n(MongoDB :27017)"]
+        end
+    end
 
-    SQL -. "❌ Denegado\n(no puede iniciar\ncomunicación)" .-> FE
-    MONGO -. "❌ Denegado" .-> FE
-    SQL -. "❌ Denegado" .-> MONGO
-    LDAP -. "❌ Denegado\nhacia DBs" .-> SQL
+    subgraph VMExt["Servicios Externos (VM 2 & VM 3)"]
+        DNS["DNS Server\n(:53 TCP/UDP)"]
+        LDAP["Active Directory / LDAP\n(:389 / :636)"]
+        SQL["SQL Server\n(:1433)"]
+    end
+
+    EXT -- "HTTPS" --> FW
+    FW -- "HTTPS" --> IC
+    IC -- "Port 8080\n✅ allow-ingress-to-web" --> FE
+    FE -- "Port 27017\n✅ allow-web-to-mongodb" --> MONGO
+    
+    %% Tráfico saliente a VMs externas
+    FE -- "Port 53\n✅ allow-web-to-external-services" --> DNS
+    FE -- "Ports 389/636\n✅ allow-web-to-external-services" --> LDAP
+    FE -- "Port 1433\n✅ allow-web-to-external-services" --> SQL
+
+    %% Denegaciones internas
+    MONGO -. "❌ Bloqueado por default-deny" .-> FE
+    IC -. "❌ Bloqueado directo a DB" .-> MONGO
 ```
+
+#### 6.1.3 Pasos de aplicación
+
+1. **Iniciar Minikube con Calico** (obligatorio para que las políticas surtan efecto):
+   ```bash
+   minikube start --cni=calico
+   ```
+   Verificar que los pods de Calico estén corriendo: `kubectl get pods -n kube-system | grep calico`.
+2. **Crear el namespace** aislado:
+   ```bash
+   kubectl apply -f k8s/namespace.yaml
+   ```
+3. **Aplicar las NetworkPolicies en orden**, empezando por la denegación total para que el resto sean excepciones sobre una base segura:
+   ```bash
+   kubectl apply -f k8s/network-policies/default-deny-all.yaml
+   kubectl apply -f k8s/network-policies/allow-ingress-to-web.yaml
+   kubectl apply -f k8s/network-policies/allow-web-to-mongodb.yaml
+   kubectl apply -f k8s/network-policies/allow-web-to-external-services.yaml
+   ```
+4. **Verificar** que las políticas estén activas y que el bloqueo funcione:
+   ```bash
+   kubectl get networkpolicy -n inventario-seguro
+   # Prueba negativa: una shell en un pod no autorizado NO debe alcanzar a mongodb
+   kubectl exec -n inventario-seguro <pod-no-web> -- nc -zv mongodb 27017   # debe fallar (timeout)
+   # Prueba positiva: el pod web SÍ debe alcanzar a mongodb
+   kubectl exec -n inventario-seguro <pod-web> -- nc -zv mongodb 27017      # debe conectar
+   ```
+
+> Si las pruebas negativas **conectan** en lugar de fallar, es señal de que el CNI no está aplicando las políticas (típicamente porque el clúster no se inició con `--cni=calico`).
 
 ### 6.2 Reglas de Red Resumidas
 
-| Origen | Destino | Puerto | Acción |
-|---|---|---|---|
-| Ingress Controller | `inventario-web` | 8080 | ✅ Permitido |
-| `inventario-web` | `ubicacion-db` | 1433 | ✅ Permitido |
-| `inventario-web` | `inventario-db` | 27017 | ✅ Permitido |
-| `inventario-web` | `ldap-service` | 389 / 636 | ✅ Permitido |
-| Cualquier otro pod | `ubicacion-db` | 1433 | ❌ Denegado |
-| Cualquier otro pod | `inventario-db` | 27017 | ❌ Denegado |
-| Cualquier otro pod | `ldap-service` | 389/636 | ❌ Denegado |
-| Tráfico sin autorización de DMZ | Ingress | — | ❌ Denegado (Firewall) |
+| Origen | Destino | Puerto | NetworkPolicy / Mecanismo | Acción |
+|---|---|---|---|---|
+| Ingress Controller | `inventario-web` | 8080 | `allow-ingress-to-web` | ✅ Permitido |
+| `inventario-web` | `inventario-db` (MongoDB) | 27017 | `allow-web-to-mongodb` | ✅ Permitido |
+| `inventario-web` | DNS (VM 2) | 53 (TCP/UDP) | `allow-web-to-external-services` | ✅ Permitido |
+| `inventario-web` | LDAP / LDAPS (VM 2) | 389 / 636 | `allow-web-to-external-services` | ✅ Permitido |
+| `inventario-web` | SQL Server (VM 3) | 1433 | `allow-web-to-external-services` | ✅ Permitido |
+| Cualquier pod | Cualquier destino interno/externo | Todos | `default-deny-all` | ❌ Denegado |
 
-### 6.3 Simulación Perimetral
+### 6.3 Autenticación y Autorización con Active Directory (VM 2)
 
-Se utiliza **GUFW** (interfaz gráfica de UFW) para simular el comportamiento del firewall perimetral universitario. Las reglas configuradas permiten únicamente tráfico HTTPS entrante hacia la IP asignada por Minikube, emulando el NAT del pfSense institucional. Todo tráfico no explícitamente autorizado es bloqueado en esta capa antes de alcanzar el clúster.
+Active Directory/LDAP **no está desplegado dentro de Kubernetes**. Se ejecuta de manera externa en la **VM 2 (Windows Server)**.
+- El backend (`inventario-web` en Spring Boot) consume el servicio LDAP/LDAPS externo a través de la red simulada.
+- Durante el proceso de autenticación, Spring Security obtiene los grupos de Active Directory a los que pertenece el usuario autenticado.
+- Estos grupos institucionales se mapean en memoria a roles internos de la aplicación para determinar el nivel de acceso en la UI y la API REST:
+  
+| Grupo en Active Directory | Rol Interno Spring Security | Permisos asignados |
+|---|---|---|
+| `Grupo_BD_Laboratorio_A` | `ROLE_ADMIN` | Acceso total (lectura, escritura, edición y eliminación). |
+| `Grupo_BD_Laboratorio_C` | `ROLE_EDITOR` | Lectura, creación y edición de datos de inventario. Sin permisos de eliminación. |
+| `Grupo_BD_Laboratorio_R` | `ROLE_READONLY` | Acceso de solo lectura al panel y búsquedas. |
+
+### 6.4 Seguridad y Acceso a MongoDB
+
+A diferencia de la autenticación de usuarios, la base documental MongoDB (que reside contenerizada en Kubernetes) **no utiliza autenticación basada en usuarios LDAP**.
+- El backend (`inventario-web`) se conecta a MongoDB mediante una **cuenta técnica** o credenciales administrativas exclusivas de la base de datos (almacenadas de forma segura en un Secret de Kubernetes).
+- La autorización para interactuar con las colecciones de hardware se delega exclusivamente a la lógica del backend mediante **Spring Security**, asegurando que los usuarios solo puedan operar con MongoDB si poseen los roles de aplicación correspondientes (`ROLE_ADMIN` o `ROLE_EDITOR`).
+
+### 6.5 Firewall Perimetral (VM 1 — pfSense)
+
+El perímetro de seguridad se implementa en una máquina virtual dedicada (**VM 1**) que ejecuta **pfSense** (firewall/router basado en FreeBSD). Se eligió pfSense sobre UFW/GUFW porque el rol de la VM 1 es el de un firewall **perimetral** —un *gateway* que enruta y filtra entre redes y realiza NAT— y no el de un simple firewall de host. pfSense modela de forma nativa NAT, reglas por interfaz y la separación WAN/LAN propia de una DMZ, lo que se alinea con la topología del proyecto.
+
+pfSense cumple una doble función:
+1. **Firewall perimetral (simulación de DMZ):** único punto de contacto con el exterior. Permite exclusivamente HTTPS entrante y lo redirige al Ingress Controller de la VM 4; el resto del tráfico entrante se rechaza por defecto.
+2. **Router/gateway con NAT del laboratorio:** es el *default gateway* de la red interna (LAN) donde residen las VMs 2, 3 y 4, y les provee salida a internet mediante NAT de salida (outbound).
+
+#### 6.5.1 Alcance del firewall: hasta dónde llega y por qué
+
+| Eje de tráfico | ¿Lo controla pfSense? | Mecanismo responsable |
+|---|---|---|
+| **Norte-Sur** — exterior ↔ clúster (entrada HTTPS) | ✅ Sí | pfSense (port forward + default-deny en WAN) |
+| **Salida a internet** — VMs internas → exterior | ✅ Sí | pfSense (Outbound NAT) |
+| **Este-Oeste** — servicio ↔ servicio entre VMs (K8s ↔ SQL/LDAP/DNS) | ❌ No | NetworkPolicies de Calico (egress `allow-web-to-external-services`, ver 6.1 y 6.2) |
+| **Intra-clúster** — pod ↔ pod, pod ↔ MongoDB | ❌ No | NetworkPolicies de Calico (ver 6.1 y 6.2) |
+
+El alcance de pfSense **termina en el perímetro** (Norte-Sur y salida a internet). El control fino del tráfico entre servicios (Este-Oeste) **no** es responsabilidad de pfSense, por dos razones:
+
+- **Razón arquitectónica:** el diseño Zero-Trust del proyecto divide responsabilidades en dos capas complementarias —el **perímetro** lo cubre pfSense y la **micro-segmentación de servicios** la cubren las NetworkPolicies de Calico (secciones 6.1 y 6.2)—. Duplicar el control Este-Oeste en pfSense sería redundante y generaría dos fuentes de verdad para la misma regla.
+- **Razón técnica:** pfSense solo inspecciona el tráfico que **enruta entre sus interfaces**. No ve el tráfico interno del clúster Kubernetes (gestionado por el CNI Calico) ni el tráfico entre máquinas que comparten la misma subred (que se conmuta a nivel 2 sin pasar por el firewall).
+
+#### 6.5.2 Diseño de red
+
+pfSense se configura con dos interfaces: **WAN** (exterior) y **LAN** (red interna del laboratorio, `192.168.56.0/24`).
+
+| Elemento | Interfaz / IP |
+|---|---|
+| pfSense WAN | DHCP (red externa) |
+| pfSense LAN (gateway) | `192.168.56.1/24` |
+| VM 2 — AD / DNS | `192.168.56.102` |
+| VM 3 — SQL Server | `192.168.56.101` |
+| VM 4 — Kubernetes | `192.168.56.103` |
+| Puerto del Ingress (NodePort) | `30443` |
+
+#### 6.5.3 Pasos de configuración
+
+1. **Interfaces:** asignar WAN (exterior) y LAN; fijar la LAN en `192.168.56.1/24` y habilitar su servidor DHCP.
+2. **Desbloquear redes privadas en la WAN:** desmarcar *Block private networks* y *Block bogon networks* en la interfaz WAN. En un laboratorio la WAN está en rango privado y, sin este paso, pfSense descartaría el tráfico y el port forward no funcionaría.
+3. **Outbound NAT (salida a internet):** dejar el modo *Automatic outbound NAT*, que enmascara `192.168.56.0/24` saliendo por la WAN.
+4. **Port Forward (entrada HTTPS → Ingress):** redirigir `WAN:443/TCP` hacia `192.168.56.103:30443` (NodePort del Ingress de la VM 4), con la opción *Add associated filter rule* para crear automáticamente la regla de paso.
+5. **Default-deny perimetral:** no crear ninguna otra regla de entrada en la WAN; todo lo no permitido explícitamente queda denegado.
+
+#### 6.5.4 Reglas del firewall perimetral
+
+| Origen | Destino | Puerto | Acción | Regla |
+|---|---|---|---|---|
+| Exterior (WAN) | Ingress K8s (`192.168.56.103`) | 443 → 30443 | ✅ Permitido (NAT + paso) | Port Forward `HTTPS → Ingress` |
+| VMs internas (LAN) | Internet | salida | ✅ Permitido (enmascarado) | Outbound NAT automático |
+| Exterior (WAN) | Cualquier otro destino/puerto | Todos | ❌ Denegado | Default-deny perimetral |
+
+> Los pasos detallados de implementación (configuración de placas en VirtualBox, asignación de interfaces, capturas de la GUI y verificación) están documentados en `firewall/reglas_pfsense.md` del repositorio.
 
 ---
 
 ## 7. Infraestructura y Despliegue
 
 ### 7.1 Estructura de Manifiestos Kubernetes
+
+Dentro del namespace `inventario-seguro` del clúster Kubernetes, se configuran únicamente los recursos indispensables para la aplicación y la base documental:
 
 ```mermaid
 graph TD
@@ -300,36 +467,83 @@ graph TD
     K8S --> NS["Namespace:\ninventario-seguro"]
     
     NS --> DEP1["Deployment:\ninventario-web"]
-    NS --> DEP2["Deployment:\nubicacion-db"]
-    NS --> DEP3["Deployment:\ninventario-db"]
-    NS --> DEP4["Deployment:\nldap-service"]
+    NS --> DEP3["Deployment:\nmongodb"]
 
-    NS --> SVC1["Service:\ninventario-web\n(NodePort/LoadBalancer)"]
-    NS --> SVC2["Service:\nubicacion-db\n(ClusterIP)"]
-    NS --> SVC3["Service:\ninventario-db\n(ClusterIP)"]
-    NS --> SVC4["Service:\nldap-service\n(ClusterIP)"]
+    NS --> SVC1["Service:\ninventario-web\n(ClusterIP/NodePort)"]
+    NS --> SVC3["Service:\nmongodb\n(ClusterIP)"]
+
+    NS --> ING["Ingress:\ninventario-ingress\n(Host: inventario.itu.local)"]
 
     NS --> NP1["NetworkPolicy:\ndefault-deny-all"]
-    NS --> NP2["NetworkPolicy:\nallow-frontend-egress"]
-    NS --> NP3["NetworkPolicy:\nallow-db-from-frontend"]
-    NS --> NP4["NetworkPolicy:\nallow-ldap-from-frontend"]
+    NS --> NP2["NetworkPolicy:\nallow-ingress-to-web"]
+    NS --> NP3["NetworkPolicy:\nallow-web-to-mongodb"]
+    NS --> NP4["NetworkPolicy:\nallow-web-to-external-services"]
 
-    NS --> PVC1["PVC: sqlserver-data"]
     NS --> PVC2["PVC: mongodb-data"]
-    NS --> PVC3["PVC: ldap-data"]
 
     NS --> CM1["ConfigMap:\napp-config"]
-    NS --> SEC1["Secret:\ndb-credentials"]
-    NS --> SEC2["Secret:\nldap-credentials"]
+    NS --> SEC1["Secret:\nldap-secret"]
+    NS --> SEC2["Secret:\nsql-secret"]
+    NS --> SEC3["Secret:\nmongo-secret"]
+    NS --> SEC4["Secret:\njwt-secret"]
 ```
 
 ### 7.2 Consideraciones de Despliegue
 
-- El clúster debe iniciarse con Calico como CNI para que las NetworkPolicies tengan efecto efectivo:
+- **CNI con Calico**: El clúster Minikube debe iniciarse obligatoriamente con el plugin Calico como CNI para que las políticas de red (`NetworkPolicies`) tengan efecto efectivo de bloqueo y filtrado:
   `minikube start --cni=calico`
-- Los PersistentVolumeClaims garantizan la persistencia de datos de las bases de datos y del directorio LDAP ante reinicios de los pods.
-- Las credenciales de acceso a las bases de datos y al servidor LDAP se gestionan mediante **Secrets de Kubernetes**, nunca como variables de entorno en texto plano dentro de los Deployments.
-- El frontend (`inventario-web`) es el único servicio expuesto externamente mediante un Service de tipo `NodePort` o a través del Ingress Controller.
+- **Persistencia**: El PersistentVolumeClaim `mongodb-data` garantiza la persistencia de los datos documentales del hardware almacenados en MongoDB ante reinicios de los pods.
+- **Gestión de Secretos**: Los datos sensibles de acceso (como credenciales de base de datos SQL Server, credenciales de LDAP, contraseñas de MongoDB y claves de firma JWT) se administran exclusivamente mediante **Secrets de Kubernetes** (`ldap-secret`, `sql-secret`, `mongo-secret`, `jwt-secret`), evitando el uso de variables de entorno expuestas en texto plano.
+- **Exposición Externa**: La aplicación unificada `inventario-web` se expone externamente a través de un objeto **Ingress NGINX** configurado bajo el host `inventario.itu.local`. Todo el tráfico externo pasa primero por el Firewall perimetral (VM 1) antes de ingresar al Ingress Controller.
+- **Conectividad a Servicios Externos**: El pod `inventario-web` utiliza el servidor DNS interno de la VM 2 (`dc01.itu.local`) para resolver los nombres de red de la VM de base de datos (`sql01.itu.local`) y de identidad.
+
+### 7.3 Flujo de Integración y Despliegue Continuo (CI/CD)
+
+La infraestructura base del ecosistema (el Firewall perimetral, la máquina virtual de Active Directory/DNS y la base de datos SQL Server) se considera **preexistente** y de administración independiente, por lo que su configuración o aprovisionamiento no forma parte de los procesos automáticos.
+
+El pipeline automatizado mediante **GitHub Actions** se enfoca exclusivamente en la entrega de la capa de aplicación:
+1. **Compilación del Frontend**: Build de la interfaz React y copia de los archivos estáticos generados al directorio `src/main/resources/static` del backend.
+2. **Compilación del Backend**: Compilación de la aplicación de Spring Boot en conjunto con sus dependencias y ejecución de tests unitarios y de integración.
+3. **Construcción de Imágenes**: Generación de la imagen de producción Docker para la aplicación unificada `inventario-web`.
+4. **Publicación**: Envío de la imagen generada al registro de contenedores (Docker Hub o GitHub Packages).
+5. **Despliegue automático (CD)**: Aplicación de los manifiestos actualizados en el clúster de Kubernetes para actualizar el Deployment `inventario-web` en caliente.
+
+### 7.4 Orden de despliegue end-to-end (Minikube + pfSense)
+
+El despliegue sigue un orden pensado para **probar conectividad primero y restringir con políticas después**, lo que facilita detectar dónde falla cada cosa. Los manifiestos del monolito (`inventario-web`) viven en `k8s/` (deployment único, services, ingress, network-policies, storage).
+
+1. **Iniciar el clúster con Calico** (el CNI se elige **al crear** el clúster; no se puede agregar después sin recrearlo):
+   ```bash
+   minikube start --cni=calico
+   ```
+2. **Habilitar el Ingress Controller**:
+   ```bash
+   minikube addons enable ingress
+   ```
+3. **Aplicar los manifiestos** (config → datos → app → red), incluido el NodePort fijo `30443`:
+   ```bash
+   kubectl apply -f k8s/namespace.yaml
+   kubectl apply -f k8s/configmap.yaml
+   # Crear los Secrets manualmente (NO están en el repo por seguridad):
+   # kubectl -n inventario-seguro create secret generic sql-secret --from-literal=DB_PASSWORD='...'
+   # kubectl -n inventario-seguro create secret generic ldap-secret --from-literal=LDAP_BIND_DN='...' --from-literal=LDAP_BIND_PASSWORD='...'
+   # kubectl -n inventario-seguro create secret generic mongo-secret
+   # kubectl -n inventario-seguro create secret generic jwt-secret --from-literal=JWT_SECRET='...'
+   kubectl apply -f k8s/storage/mongodb-pvc.yaml -f k8s/deployments/mongodb.yaml -f k8s/services/mongodb.yaml
+   kubectl apply -f k8s/deployments/inventario-web.yaml -f k8s/services/inventario-web.yaml
+   kubectl apply -f k8s/ingress/inventario-ingress.yaml
+   kubectl apply -f k8s/ingress/ingress-nginx-nodeport.yaml   # abre el 30443 hacia el controlador
+   ```
+4. **Configurar pfSense** (port forward `WAN:443 → 192.168.56.103:30443`, ver 6.5) y **probar pegarle al 30443 SIN políticas aún** → debe responder. Si no responde acá, el problema es de conectividad/NodePort, no de Calico.
+5. **Aplicar las NetworkPolicies** —la denegación total y los cuatro permisos **juntos** (ver 6.1.3):
+   ```bash
+   kubectl apply -f k8s/network-policies/
+   ```
+
+> **Tres advertencias clave:**
+> 1. **Calico va al inicio.** Si arrancás Minikube sin `--cni=calico` y después querés Calico, hay que **recrear el clúster** desde cero.
+> 2. **El NodePort debe ser alcanzable en la IP LAN de la VM4** (`192.168.56.103`). Según el driver de Minikube (ej. `docker`), el NodePort puede quedar en la IP interna de Minikube y no en la de la VM; en ese caso usar `--driver=none`, `minikube tunnel` o un reenvío dentro de la VM4.
+> 3. **Al aplicar `default-deny-all`, el 30443 deja de responder** hasta que también esté `allow-ingress-to-web`. Aplicar la denegación y los permisos en un solo paso (paso 5), nunca la denegación sola.
 
 ---
 
@@ -340,6 +554,12 @@ El proyecto debe versionarse en un repositorio Git unificado con la siguiente es
 ```
 /
 ├── README.md
+├── .env.example              # Plantilla de variables para docker compose (producción)
+├── docker-compose.yml          # Frontend + backend + MongoDB (SQL Server en VM externa)
+├── docker-compose.dev.yml      # SQL Server + MongoDB para desarrollo local
+├── docker/
+│   └── sqlserver/
+│       └── init.sql            # Creación de BD para compose de desarrollo
 ├── docs/
 │   ├── arquitectura.md
 │   ├── diagrama_clases.png
@@ -349,28 +569,33 @@ El proyecto debe versionarse en un repositorio Git unificado con la siguiente es
 │   ├── namespace.yaml
 │   ├── deployments/
 │   │   ├── inventario-web.yaml
-│   │   ├── ubicacion-db.yaml
-│   │   ├── inventario-db.yaml
-│   │   └── ldap-service.yaml
+│   │   └── mongodb.yaml
 │   ├── services/
-│   │   └── *.yaml
+│   │   ├── inventario-web.yaml
+│   │   └── mongodb.yaml
+│   ├── ingress/
+│   │   └── inventario-ingress.yaml
 │   ├── network-policies/
 │   │   ├── default-deny-all.yaml
-│   │   ├── allow-frontend.yaml
-│   │   └── allow-db-from-frontend.yaml
+│   │   ├── allow-ingress-to-web.yaml
+│   │   ├── allow-web-to-mongodb.yaml
+│   │   └── allow-web-to-external-services.yaml
+│   ├── secrets/
+│   │   └── secrets.yaml
 │   └── storage/
-│       └── pvc.yaml
+│       └── mongodb-pvc.yaml
 ├── app/
 │   ├── inventario-web/
-│   │   ├── Dockerfile
+│   │   ├── Dockerfile          # Spring Boot + frontend embebido (multi-stage)
+│   │   ├── frontend/
+│   │   │   └── src/
 │   │   └── src/
-├── db/
+├── migraciones/
 │   ├── sql/
-│   │   └── create_schema.sql
-│   └── mongo/
-│       └── seed_data.json
+│   │   └── V0__create_database.sql  # Script para VM de SQL Server
+│   └── mongodb/
 └── firewall/
-    └── reglas_gufw.md
+    └── reglas_pfsense.md
 ```
 
 El historial de commits debe reflejar la contribución individual de cada integrante y la evolución incremental del proyecto, siguiendo buenas prácticas de mensajes descriptivos y ramas de trabajo por funcionalidad.
@@ -385,7 +610,7 @@ El historial de commits debe reflejar la contribución individual de cada integr
 | Integrante 2 | Modelado y creación de la base de datos SQL Server (`ubicacion-db`), script SQL |
 | Integrante 3 | Diseño de colección MongoDB (`inventario-db`), documentos JSON, queries de prueba |
 | Integrante 4 | Desarrollo de la aplicación web (`inventario-web`): frontend + API REST (Spring Boot) |
-| Integrante 5 | Configuración del servidor LDAP, NetworkPolicies, simulación de firewall (GUFW), presentación |
+| Integrante 5 | Configuración del servidor LDAP, NetworkPolicies, configuración del firewall perimetral (pfSense), presentación |
 
 ---
 
@@ -399,7 +624,432 @@ El historial de commits debe reflejar la contribución individual de cada integr
 
 ---
 
-## 11. Conclusión
+## 11. Implementación del Backend
+
+### 11.1 Estructura del proyecto Spring Boot
+
+El backend se implementa como un monolito modular bajo `app/inventario-web/`, utilizando **Spring Boot 3.4.1** con **Java 17** y **Maven** como herramienta de construcción.
+
+```
+app/inventario-web/
+├── pom.xml
+└── src/main/java/com/itu/egi/inventarioseguro/
+    ├── config/         DataSourceConfig — registra repositorios JPA y MongoDB en paquetes separados
+    ├── model/          Entidades JPA, documento MongoDB y enums
+    ├── repository/
+    │   ├── sql/        Repositorios Spring Data JPA (SQL Server)
+    │   └── mongo/      Repositorios Spring Data MongoDB
+    ├── dto/            Objetos de transferencia de datos (request y response)
+    ├── service/        Lógica de negocio
+    └── controller/     Controladores REST (/api/*)
+```
+
+### 11.2 Dependencias principales
+
+| Dependencia | Propósito |
+|---|---|
+| `spring-boot-starter-web` | API REST con Jackson |
+| `spring-boot-starter-data-jpa` | ORM sobre SQL Server con Hibernate |
+| `spring-boot-starter-data-mongodb` | Repositorios sobre MongoDB |
+| `mssql-jdbc` | Driver JDBC para SQL Server |
+| `flyway-core` + `flyway-sqlserver` | Migraciones automáticas al arrancar |
+| `spring-boot-starter-validation` | Validación de DTOs con Jakarta Bean Validation |
+| `lombok` | Reducción de boilerplate (getters, setters, constructores) |
+
+### 11.3 Modelo de dominio
+
+#### Entidades JPA (SQL Server)
+
+- **`Persona`** — mapea la tabla `persona`. Categoría como enum `Categoria` (`RESPONSABLE_TECNICO`, `ALUMNO`, `DOCENTE`).
+- **`Maquina`** — mapea la tabla `maquina`. Aula como enum `Aula` (`AULA_1y2`, `LABORATORIO_SO`, `LABORATORIO_REDES`, `AULA_4`).
+- **`PersonaMaquina`** — mapea la tabla `persona_maquina`. Usa `@EmbeddedId` con `PersonaMaquinaId` por tener el campo adicional `fecha_asignado`.
+
+#### Documento MongoDB
+
+- **`MaquinaHardware`** — colección `maquina`. Su `_id` es el mismo `Long` que el `id` de la entidad `Maquina` en SQL Server, funcionando como clave compartida entre bases.
+
+### 11.4 Endpoints REST
+
+Todos los endpoints devuelven y aceptan JSON con naming en **snake_case** (configurable globalmente via Jackson `SNAKE_CASE`).
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/api/auth/login` | Autenticación — devuelve `{username, token, role}` |
+| GET | `/api/maquinas` | Lista completa: SQL + MongoDB + asignaciones combinados |
+| GET | `/api/maquinas/{id}` | Detalle unificado por ID |
+| POST | `/api/maquinas` | Crea máquina en SQL y su hardware en MongoDB, con asignaciones |
+| PUT | `/api/maquinas/{id}` | Actualiza en ambas bases y reemplaza asignaciones |
+| DELETE | `/api/maquinas/{id}` | Elimina de ambas bases |
+| GET | `/api/personas` | Lista todas las personas |
+| GET | `/api/personas/{id}` | Detalle de persona |
+| POST | `/api/personas` | Crea persona |
+| PUT | `/api/personas/{id}` | Actualiza persona |
+| DELETE | `/api/personas/{id}` | Elimina persona |
+| POST | `/api/asignaciones` | Asigna máquina a persona (standalone) |
+| DELETE | `/api/asignaciones/{personaId}/{maquinaId}` | Desasigna |
+
+#### Estructura de request/response de `/api/maquinas`
+
+**GET /api/maquinas** — respuesta (array de):
+```json
+{
+  "id": 1,
+  "numero_mesa": 5,
+  "fecha_mantenimiento": "2026-12-01",
+  "aula": "LABORATORIO_SO",
+  "especificaciones": {
+    "maquina_id": 1,
+    "fabricante": "Dell",
+    "modelo": "OptiPlex 7090",
+    "tipo": "desktop",
+    "cpu": "Intel Core i5-11500",
+    "ram_gb": 16,
+    "disco": { "tipo": "SSD", "capacidad_gb": 512 },
+    "sistema_operativo": "Windows 11 Pro",
+    "perifericos": { "monitor": "Dell 24\"", "mouse": "Dell MS116", "teclado": "Dell KB216" }
+  },
+  "asignaciones": [
+    {
+      "persona": { "id": 1, "nombre": "Juan", "apellido": "Humeniuk", "categoria": "Docente" },
+      "fecha_asignado": "2026-06-06"
+    }
+  ]
+}
+```
+
+**POST /api/maquinas** — body esperado:
+```json
+{
+  "aula": "LABORATORIO_SO",
+  "numero_mesa": 5,
+  "fecha_mantenimiento": "2026-12-01",
+  "especificaciones": {
+    "fabricante": "Dell",
+    "modelo": "OptiPlex 7090",
+    "tipo": "desktop",
+    "cpu": "Intel Core i5-11500",
+    "ram_gb": 16,
+    "disco": { "tipo": "SSD", "capacidad_gb": 512 },
+    "sistema_operativo": "Windows 11 Pro",
+    "perifericos": { "monitor": "Dell 24\"", "mouse": "Dell MS116", "teclado": "Dell KB216" }
+  },
+  "asignaciones": [
+    { "personaId": 1, "fecha_asignado": "2026-06-06" }
+  ]
+}
+```
+
+### 11.5 Gestión de migraciones (Flyway)
+
+Al arrancar la aplicación, Flyway ejecuta automáticamente las migraciones en orden:
+
+| Versión | Acción |
+|---|---|
+| V1 | Crea tabla `persona` con CHECK en `categoria` |
+| V2 | Crea tabla `maquina` |
+| V3 | Crea tabla `persona_maquina` (N:M) con índice en `maquina_id` |
+| V4 | Elimina columna `laboratorio` y agrega CHECK enum `aula` |
+
+### 11.6 Configuración de doble fuente de datos (JPA + MongoDB)
+
+La coexistencia de Spring Data JPA y Spring Data MongoDB en la misma aplicación requiere una configuración explícita para evitar conflictos en la detección automática de repositorios. Esto se implementa en la clase `DataSourceConfig`:
+
+```java
+@Configuration
+@EnableJpaRepositories(basePackages = "...repository.sql")
+@EnableMongoRepositories(basePackages = "...repository.mongo")
+public class DataSourceConfig {
+    @Bean
+    public MongoTemplate mongoTemplate(MongoDatabaseFactory factory) {
+        MongoTemplate template = new MongoTemplate(factory);
+        template.setSessionSynchronization(SessionSynchronization.NEVER);
+        return template;
+    }
+}
+```
+
+El ajuste `SessionSynchronization.NEVER` es necesario para que Spring Data MongoDB no intente enlazar sus operaciones de escritura al ciclo de vida de las transacciones JPA activas (que gestionan SQL Server), lo que de otro modo causaría que las escrituras a MongoDB se descarten silenciosamente.
+
+### 11.7 Entornos Docker
+
+El repositorio incluye dos archivos Compose con propósitos distintos:
+
+#### Desarrollo local — `docker-compose.dev.yml`
+
+Levanta **solo las bases de datos** para trabajar con el backend y el frontend fuera de contenedores (IDE, `mvn spring-boot:run`, `npm run dev`):
+
+| Servicio | Imagen | Puerto host | Credenciales |
+|---|---|---|---|
+| SQL Server 2022 | `mcr.microsoft.com/mssql/server:2022-latest` | 1433 | sa / `EGI_Password123!` |
+| MongoDB 7 | `mongo:7` | **27018** | Sin autenticación |
+
+Incluye un job `sqlserver-init` que ejecuta `docker/sqlserver/init.sql` para crear la base `inventario_egi` en el primer arranque.
+
+MongoDB se expone en el **puerto 27018** (no 27017) para evitar conflictos con instalaciones locales del servicio MongoDB.
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+#### Despliegue — `docker-compose.yml`
+
+Levanta la **aplicación** (Spring Boot con frontend embebido) y **MongoDB**. **SQL Server no se dockeriza**: corre en una VM externa y el backend se conecta mediante `DB_URL` en `.env`.
+
+El frontend React se compila durante `mvn package` (`frontend-maven-plugin`) hacia `src/main/resources/static` y se sirve desde el mismo puerto que la API. **Un solo contenedor de aplicación**, sin nginx separado.
+
+| Servicio | Dónde corre | Puerto (ejemplo) |
+|---|---|---|
+| App (Spring Boot + UI) | Contenedor Docker | 8080 |
+| MongoDB | Contenedor Docker | red interna `mongodb:27017` |
+| SQL Server | **VM externa** | 1433 (configurado en `DB_URL`) |
+
+```bash
+cp .env.example .env
+# Editar DB_URL y DB_PASSWORD con la VM de SQL Server
+docker compose up --build -d
+# App completa: http://localhost:8080
+# API:          http://localhost:8080/api
+```
+
+Durante el build Docker, `VITE_API_URL=/api` (ruta relativa, misma origin). No se requiere CORS en producción embebida.
+
+##### Preparar SQL Server (VM externa)
+
+1. Instalar SQL Server en la VM y abrir el puerto **1433** hacia el host donde corre Docker.
+2. Crear la base de datos (una sola vez):
+
+```bash
+sqlcmd -S localhost -U sa -P '<password>' -C -i migraciones/sql/V0__create_database.sql
+```
+
+3. Configurar la conexión en `.env` (ver sección 11.8).
+
+Flyway aplica las migraciones V1–V4 automáticamente al arrancar el backend.
+
+##### Probar el compose de producción sin VM externa
+
+Para desarrollo integrado, levantar SQL Server con el compose de desarrollo y apuntar el backend al host:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+cp .env.example .env
+# En .env:
+# DB_URL=jdbc:sqlserver://host.docker.internal:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true
+# DB_PASSWORD=EGI_Password123!
+docker compose up --build -d
+```
+
+##### Seed de MongoDB (opcional)
+
+```bash
+docker compose exec -T mongodb mongosh inventario_egi --quiet < migraciones/mongodb/V3__seed_maquina_documents.js
+```
+
+### 11.8 Configuración de entorno
+
+La aplicación se configura mediante variables de entorno para no hardcodear credenciales. El archivo `.env.example` en la raíz del repositorio documenta todas las variables del despliegue Docker; copiarlo a `.env` antes de `docker compose up`.
+
+#### Backend (Spring Boot)
+
+| Variable | Valor por defecto | Descripción |
+|---|---|---|
+| `DB_URL` | `jdbc:sqlserver://localhost:1433;databaseName=inventario_egi;...` | URL JDBC completa hacia SQL Server. En producción apunta a la VM externa |
+| `DB_USER` | `sa` | Usuario SQL Server |
+| `DB_PASSWORD` | `sa` | Contraseña SQL Server |
+| `MONGO_URI` | `mongodb://localhost:27018/inventario_egi` | URI MongoDB. En Docker: `mongodb://mongodb:27017/inventario_egi` |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Orígenes CORS (solo necesario en dev con Vite en `:3000`) |
+
+En `application.yml`, la URL de SQL Server se resuelve desde `DB_URL`:
+
+```yaml
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:sqlserver://localhost:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true}
+    username: ${DB_USER:sa}
+    password: ${DB_PASSWORD:sa}
+```
+
+#### Frontend embebido (build)
+
+El frontend se compila con `VITE_API_URL=/api` (configurado en `pom.xml` y en el Dockerfile). En producción embebida la API se llama con ruta relativa; no hace falta configurar `VITE_*` en el `.env` de Docker.
+
+Para desarrollo local con Vite (`npm run dev` en `:3000`), usar `app/inventario-web/frontend/.env.local`:
+
+```env
+VITE_API_URL=http://localhost:8080/api
+VITE_USE_MOCK=false
+```
+
+---
+
+## 12. Frontend — Aplicación React
+
+### 12.1 Tecnologías
+
+La interfaz web está implementada con **React 19 + TypeScript + Vite + Tailwind CSS**, ubicada en `app/inventario-web/frontend/`.
+
+| Tecnología | Versión | Rol |
+|---|---|---|
+| React + TypeScript | 19 / 5.8 | UI y tipado estático |
+| Vite | 6 | Build tool y dev server (puerto 3000) |
+| Tailwind CSS | 4 | Estilos utilitarios |
+| Lucide React | 0.546 | Iconografía |
+
+### 12.2 Arquitectura de servicios
+
+El frontend implementa una capa de servicios en `src/services/` que abstrae la comunicación con el backend:
+
+| Archivo | Responsabilidad |
+|---|---|
+| `api.ts` | Cliente base HTTP con inyección automática de JWT en el header `Authorization: Bearer <token>` |
+| `authService.ts` | Login contra `/api/auth/login`, persistencia del token en `localStorage` |
+| `maquinaService.ts` | CRUD completo contra `/api/maquinas` y `/api/personas` |
+
+### 12.3 Modo Mock vs. Real
+
+El frontend soporta dos modos controlados por variables de entorno:
+
+```env
+# Producción embebida: fallback /api (no requiere configuración)
+# Desarrollo con Vite (:3000 → API :8080):
+VITE_API_URL=http://localhost:8080/api
+VITE_USE_MOCK=false
+
+# Modo mock (datos en localStorage, sin backend)
+VITE_USE_MOCK=true
+```
+
+| Archivo | Cuándo usarlo |
+|---|---|
+| `app/inventario-web/frontend/.env.local` | Desarrollo local con `npm run dev` |
+| Build embebido (`mvn package` / Docker) | `VITE_API_URL=/api` automático via `pom.xml` |
+
+El modo mock simula con fidelidad el comportamiento del backend (transacciones SQL + MongoDB) usando `localStorage`, lo que permite desarrollar el frontend de forma independiente.
+
+### 12.4 Levantar el frontend
+
+```bash
+cd app/inventario-web/frontend
+npm install
+npm run dev        # http://localhost:3000
+```
+
+Para el login en modo desarrollo con mock (`VITE_USE_MOCK=true`): `admin` / `admin123`. En producción con LDAP real, usar credenciales de Active Directory (ver tabla de usuarios en el README).
+
+---
+
+## 13. Integración Backend-Frontend
+
+### 13.1 CORS
+
+La clase `CorsConfig` habilita CORS para desarrollo con Vite (`npm run dev` en `:3000` → API en `:8080`). En producción embebida (todo en `:8080`) no es necesario. Orígenes configurables via `CORS_ALLOWED_ORIGINS`:
+
+```java
+@Value("${CORS_ALLOWED_ORIGINS:http://localhost:3000}")
+private String[] allowedOrigins;
+```
+
+### 13.2 Convención de naming JSON
+
+Jackson está configurado globalmente con la estrategia `SNAKE_CASE` en `application.yml`:
+
+```yaml
+spring:
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+```
+
+Esto convierte automáticamente los campos camelCase de Java (`numeroMesa`, `ramGb`, `sistemaOperativo`) a snake_case en el JSON (`numero_mesa`, `ram_gb`, `sistema_operativo`), alineándose con la convención del frontend.
+
+### 13.3 Autenticación (LDAP + JWT)
+
+El endpoint `POST /api/auth/login` autentica al usuario contra el servidor Active Directory/LDAP de la VM 2 y devuelve un token JWT firmado con HMAC-SHA.
+
+El flujo implementado en `AuthController` → `LdapAuthenticationService` → `RoleMapper` → `JwtService` es:
+
+1. `LdapAuthenticationService.authenticateAndGetGroups(username, password)` valida las credenciales contra el LDAP configurado en `application.yml` (`ldap://192.168.56.102:389`).
+2. Si la autenticación es exitosa, se obtienen los grupos del usuario por dos métodos complementarios: el atributo `memberOf` del usuario (común en AD) y una búsqueda reversa por el DN del usuario en la OU de laboratorios.
+3. `RoleMapper` traduce los grupos de AD a roles internos de Spring Security (ver tabla en sección 6.3).
+4. `JwtService` genera un token JWT con el username y los roles como claims, firmado con HMAC-SHA y con expiración configurable (por defecto 24 horas).
+
+Respuesta exitosa:
+```json
+{
+  "username": "osmelmata",
+  "token": "eyJhbGciOiJIUzI1NiJ9...",
+  "role": "EDITOR"
+}
+```
+
+Si las credenciales son incorrectas, retorna HTTP 401 con mensaje de error. Si faltan `username` o `password` en el body, retorna HTTP 400.
+
+El `JwtFilter` intercepta todas las solicitudes posteriores: extrae el token del header `Authorization: Bearer <token>`, lo valida y carga el `SecurityContext` con el usuario y sus roles para que los `@PreAuthorize` de los controllers puedan evaluar los permisos.
+
+### 13.4 Validación del contrato de API
+
+La integración fue verificada con Playwright (Chromium headless):
+
+| Check | Resultado |
+|---|---|
+| Login con credenciales LDAP válidas | ✅ `POST /api/auth/login → 200` (JWT + role) |
+| Dashboard carga máquinas reales | ✅ `GET /api/maquinas → 200` |
+| Lista de personas para selector | ✅ `GET /api/personas → 200` |
+| Crear máquina desde formulario | ✅ `POST /api/maquinas → 201` |
+| Errores CORS en consola del navegador | ✅ 0 errores |
+| Errores de JavaScript en consola | ✅ 0 errores |
+
+---
+
+## 14. Tests
+
+### 14.1 Estrategia de testing
+
+Se implementaron **17 tests** divididos en tres niveles, sin requerir bases de datos externas:
+
+| Tipo | Clase | Tests | Herramienta |
+|---|---|---|---|
+| Unitario (service) | `MaquinaServiceTest` | 7 | JUnit 5 + Mockito |
+| Integración HTTP (controller) | `MaquinaControllerTest` | 6 | `@WebMvcTest` + MockMvc |
+| Integración HTTP (auth) | `AuthControllerTest` | 3 | `@WebMvcTest` + MockMvc |
+| Placeholder | `InventarioApplicationTests` | 1 | — |
+
+### 14.2 Casos cubiertos
+
+**MaquinaServiceTest** — lógica de negocio:
+- `findAll` devuelve lista con datos de SQL + MongoDB combinados
+- `findAll` con MongoDB vacío devuelve especificaciones en null sin crashear
+- `findById` happy path con datos completos
+- `findById` ID inexistente → 404
+- `create` persiste en SQL Server Y en MongoDB
+- `delete` elimina de ambas bases
+- `delete` ID inexistente → 404 sin tocar las bases
+
+**MaquinaControllerTest** — capa HTTP:
+- `GET /api/maquinas` → 200 con JSON en snake_case (`numero_mesa`, `ram_gb`, `sistema_operativo`, `capacidad_gb`)
+- `GET /api/maquinas/{id}` → 200 con estructura completa
+- `POST /api/maquinas` con body válido → 201
+- `POST /api/maquinas` sin `especificaciones` (@NotNull) → 400
+- `PUT /api/maquinas/{id}` → 200
+- `DELETE /api/maquinas/{id}` → 204
+
+**AuthControllerTest** — autenticación LDAP:
+- Usuario del grupo `Grupo_BD_Laboratorio_A` → role `ADMIN`, token JWT válido
+- Usuario del grupo `Grupo_BD_Laboratorio_R` → role `READONLY`
+- Body vacío (sin username/password) → respuesta 400 Bad Request
+
+### 14.3 Ejecutar los tests
+
+```bash
+cd app/inventario-web
+mvn test
+# BUILD SUCCESS — Tests run: 17, Failures: 0, Errors: 0, Skipped: 0
+```
+
+Los tests de controller (`@WebMvcTest`) y los unitarios (Mockito) no requieren Docker ni bases de datos.
+
+---
+
+## 15. Conclusión
 
 El proyecto EGI representa un ejercicio integral de ingeniería de sistemas, abarcando desde el análisis y diseño de bases de datos relacionales y documentales, hasta la implementación de seguridad perimetral, autenticación centralizada y orquestación de contenedores. La arquitectura propuesta es escalable, segura por diseño y alineada con los principios modernos de infraestructura como código y Zero-Trust Networking.
 

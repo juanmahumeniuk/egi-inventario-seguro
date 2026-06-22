@@ -1,0 +1,44 @@
+[
+  {
+    "_id": 2,
+    "fabricante": "HP",
+    "modelo": "ProDesk 400 G7",
+    "tipo": "DESKTOP",
+    "cpu": "Intel Core i5-10500",
+    "ramGb": 8,
+    "disco": { "tipo": "HDD", "capacidadGb": 1000 },
+    "sistemaOperativo": "Windows 10 Pro",
+    "perifericos": {
+      "monitor": "HP V24i 24\"",
+      "mouse": "HP 128",
+      "teclado": "HP 125"
+    },
+    "_class": "com.itu.egi.inventarioseguro.model.MaquinaHardware"
+  },
+  {
+    "_id": 3,
+    "fabricante": "Lenovo",
+    "modelo": "ThinkPad E14 Gen 5",
+    "tipo": "LAPTOP",
+    "cpu": "AMD Ryzen 5 7530U",
+    "ramGb": 16,
+    "disco": { "tipo": "SSD", "capacidadGb": 512 },
+    "sistemaOperativo": "Ubuntu 22.04 LTS",
+    "_class": "com.itu.egi.inventarioseguro.model.MaquinaHardware"
+  },
+  {
+    "_id": 4,
+    "fabricante": "Lenovo",
+    "modelo": "IdeaCentre AIO 3 24",
+    "tipo": "ALL_IN_ONE",
+    "cpu": "AMD Ryzen 7 5700U",
+    "ramGb": 16,
+    "disco": { "tipo": "SSD", "capacidadGb": 256 },
+    "sistemaOperativo": "Windows 11 Home",
+    "perifericos": {
+      "mouse": "Lenovo Calliope",
+      "teclado": "Lenovo Calliope"
+    },
+    "_class": "com.itu.egi.inventarioseguro.model.MaquinaHardware"
+  }
+]

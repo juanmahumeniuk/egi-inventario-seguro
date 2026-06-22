@@ -1,0 +1,60 @@
+spring:
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+
+  application:
+    name: inventario-seguro
+
+  datasource:
+    url: ${DB_URL:jdbc:sqlserver://192.168.56.101:1433;databaseName=inventario_egi;encrypt=false;trustServerCertificate=true}
+    username: ${DB_USER:sa}
+    password: ${DB_PASSWORD:Itu12345!}
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://localhost:27018/inventario_egi}
+
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
+  ldap:
+    urls: ldap://192.168.56.102:389
+    base: dc=itu,dc=local
+    username: cn=Administrador,cn=Users,dc=itu,dc=local
+    password: Itu12345!
+
+app:
+  security:
+    jwt:
+      secret: SecretKeyForEGIIinventarioSeguroNeedsToBeAtLeast32BytesLongSecretKeyForEGIIinventarioSeguroNeedsToBeAtLeast32BytesLong
+      expiration-ms: 86400000
+  ldap:
+    user-search-base: OU=Users,OU=ITU
+    user-search-filter: (sAMAccountName={0})
+    group-search-base: OU=Laboratorios,OU=Groups,OU=ITU
+    group-search-filter: (member={0})
+
+server:
+  port: 8080
+  error:
+    include-message: always
+    include-binding-errors: always
+
+logging:
+  level:
+    root: INFO
