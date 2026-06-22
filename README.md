@@ -406,9 +406,9 @@ kubectl logs -n inventario-seguro deployment/inventario-web | grep -i ldap
 
 ---
 
-## Estado actual (2026-06-21)
+## Estado actual (2026-06-22)
 
-✅ **Implementación completada y verificada end-to-end:**
+✅ **Sistema completamente validado en producción (pruebas E2E 2026-06-22):**
 
 - ✅ API REST Spring Boot + Frontend React compilado
 - ✅ Autenticación LDAP (Active Directory) con JWT
@@ -418,8 +418,76 @@ kubectl logs -n inventario-seguro deployment/inventario-web | grep -i ldap
 - ✅ pfSense firewall perimetral con port forward WAN:443 → k8s:30443
 - ✅ Acceso multi-red: WAN externo, LAN interna, VirtualBox port forwards
 - ✅ CORS dinámico desde env vars (no hardcodeado)
-- ✅ Todos los CRUD operacionales con control de permisos (EDITOR, ADMIN, VIEWER)
-- ✅ Depliegue reproducible: manifiestos k8s + systemd service + documentación
+- ✅ CRUD completo validado con control de permisos por rol
+- ✅ Frontend validado: login, listado, detalle, creación de máquinas
+- ✅ Suite de tests unitarios: 17/17 passing
+- ✅ Despliegue reproducible: manifiestos k8s + systemd service + documentación
+
+---
+
+## Pruebas E2E — Resultados (2026-06-22)
+
+### Usuarios LDAP y roles reales
+
+| Usuario | Contraseña | Grupo AD | Rol |
+|---------|-----------|----------|-----|
+| `osmelmata` | `Itu12345!` | `Grupo_BD_Laboratorio_C` | EDITOR |
+| `juanperez` | `Itu12345!` | `Grupo_BD_Laboratorio_A` | ADMIN |
+| `lucianofedericci` | `Itu12345!` | `Grupo_BD_Laboratorio_R` | READONLY |
+
+### Matriz de permisos verificada
+
+| Operación | READONLY | EDITOR | ADMIN |
+|-----------|----------|--------|-------|
+| GET `/api/maquinas` | ✅ 200 | ✅ 200 | ✅ 200 |
+| POST `/api/maquinas` | ❌ 403 | ✅ 201 | ✅ 201 |
+| PUT `/api/maquinas/{id}` | ❌ 403 | ✅ 200 | ✅ 200 |
+| DELETE `/api/maquinas/{id}` | ❌ 403 | ❌ 403 | ✅ 204 |
+
+### NetworkPolicies verificadas
+
+| Prueba | Resultado |
+|--------|-----------|
+| Pod `mongodb` → internet (8.8.8.8:443) | BLOQUEADO ✅ |
+| Pod `inventario-web` → `mongodb:27017` | CONECTADO ✅ |
+
+---
+
+## Flujo de arranque del entorno
+
+Para levantar el sistema desde cero:
+
+1. **Encender VMs en VirtualBox** en este orden:
+   - VM1 pfSense → VM2 Windows AD → VM3 Windows SQL → VM4 Ubuntu (Minikube)
+
+2. **Conectarse a Ubuntu por SSH** (desde Windows):
+   ```bash
+   ssh -p 2222 gonza2001@localhost
+   ```
+
+3. **Verificar que minikube y pods están corriendo**:
+   ```bash
+   minikube status
+   kubectl get pods -n inventario-seguro
+   ```
+   Si minikube aparece `Stopped`:
+   ```bash
+   minikube start --cni=calico --driver=docker --memory=4096 --cpus=2
+   ```
+
+4. **Verificar el port-forward** (systemd service):
+   ```bash
+   systemctl is-active egi-portforward
+   ```
+
+5. **Agregar hosts entry en Windows** (solo la primera vez, en PowerShell como admin):
+   ```powershell
+   Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "127.0.0.1`tinventario.itu.local"
+   ```
+
+6. **Acceder al sistema**:
+   - Frontend: `https://inventario.itu.local:30443` (aceptar certificado autofirmado)
+   - API directa: `https://inventario.itu.local:30443/api/auth/login`
 
 ## Equipo
 
