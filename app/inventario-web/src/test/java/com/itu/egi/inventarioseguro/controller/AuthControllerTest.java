@@ -1,5 +1,6 @@
 package com.itu.egi.inventarioseguro.controller;
 
+import com.itu.egi.inventarioseguro.config.SecurityConfig;
 import com.itu.egi.inventarioseguro.security.JwtAuthenticationEntryPoint;
 import com.itu.egi.inventarioseguro.security.JwtFilter;
 import com.itu.egi.inventarioseguro.security.JwtService;
@@ -9,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -22,6 +25,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AuthController.class)
+@Import(SecurityConfig.class)
 class AuthControllerTest {
 
         @Autowired
@@ -33,7 +37,7 @@ class AuthControllerTest {
         RoleMapper roleMapper;
         @MockBean
         JwtService jwtService;
-        @MockBean
+        @SpyBean
         JwtFilter jwtFilter;
         @MockBean
         JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;

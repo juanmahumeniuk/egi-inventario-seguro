@@ -75,7 +75,9 @@ export default function MaquinaDetailDrawer({ maquina, onClose, onEdit }: Maquin
               <div className="grid grid-cols-2 gap-2 pb-2 border-b border-slate-200/50">
                 <span className="text-slate-400">Almacenamiento:</span>
                 <span className="font-semibold text-slate-700 text-right">
-                  {maquina.especificaciones.disco.capacidad_gb} GB ({maquina.especificaciones.disco.tipo})
+                  {maquina.especificaciones.disco
+                    ? `${maquina.especificaciones.disco.capacidad_gb} GB (${maquina.especificaciones.disco.tipo})`
+                    : 'Sin datos'}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2 pb-2 border-b border-slate-200/50">
@@ -98,21 +100,21 @@ export default function MaquinaDetailDrawer({ maquina, onClose, onEdit }: Maquin
                 <Monitor size={14} className="text-slate-400 mt-1" />
                 <div className="flex-1">
                   <span className="text-xs text-slate-400 block">Monitor</span>
-                  <span className="font-semibold text-slate-700">{maquina.especificaciones.perifericos.monitor}</span>
+                  <span className="font-semibold text-slate-700">{maquina.especificaciones.perifericos?.monitor ?? 'Sin datos'}</span>
                 </div>
               </div>
               <div className="flex items-start gap-2.5 pb-2 border-b border-slate-200/50">
                 <Mouse size={14} className="text-slate-400 mt-1" />
                 <div className="flex-1">
                   <span className="text-xs text-slate-400 block">Mouse</span>
-                  <span className="font-semibold text-slate-700">{maquina.especificaciones.perifericos.mouse}</span>
+                  <span className="font-semibold text-slate-700">{maquina.especificaciones.perifericos?.mouse ?? 'Sin datos'}</span>
                 </div>
               </div>
               <div className="flex items-start gap-2.5">
                 <Keyboard size={14} className="text-slate-400 mt-1" />
                 <div className="flex-1">
                   <span className="text-xs text-slate-400 block">Teclado</span>
-                  <span className="font-semibold text-slate-700">{maquina.especificaciones.perifericos.teclado}</span>
+                  <span className="font-semibold text-slate-700">{maquina.especificaciones.perifericos?.teclado ?? 'Sin datos'}</span>
                 </div>
               </div>
             </div>
