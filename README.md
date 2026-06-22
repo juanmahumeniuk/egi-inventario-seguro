@@ -272,24 +272,40 @@ minikube addons enable ingress
 
 # 3. Aplicar los manifiestos (config -> datos -> app -> red), incluido el NodePort 30443
 kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/configmap.yaml -f k8s/01-config/secret.yaml
+kubectl apply -f k8s/configmap.yaml
+
+# 3b. Crear los Secrets (no están en el repo, se crean a mano)
+kubectl -n inventario-seguro create secret generic sql-secret \
+  --from-literal=DB_PASSWORD='Itu12345!'
+kubectl -n inventario-seguro create secret generic ldap-secret \
+  --from-literal=LDAP_BIND_DN='cn=Administrador,cn=Users,dc=itu,dc=local' \
+  --from-literal=LDAP_BIND_PASSWORD='Itu12345!'
+kubectl -n inventario-seguro create secret generic mongo-secret
+kubectl -n inventario-seguro create secret generic jwt-secret \
+  --from-literal=JWT_SECRET='SecretKeyForEGIIinventarioSeguroNeedsToBeAtLeast32BytesLong...'
+
+# 4. Storage + MongoDB
 kubectl apply -f k8s/storage/mongodb-pvc.yaml -f k8s/deployments/mongodb.yaml -f k8s/services/mongodb.yaml
+
+# 5. App (esperar a que MongoDB esté Ready)
 kubectl apply -f k8s/deployments/inventario-web.yaml -f k8s/services/inventario-web.yaml
+
+# 6. Ingress + NodePort para pfSense
 kubectl apply -f k8s/ingress/inventario-ingress.yaml
 kubectl apply -f k8s/ingress/ingress-nginx-nodeport.yaml   # expone el 30443
 
-# 4. Configurar pfSense (port forward WAN:443 -> 192.168.10.40:30443) y probar SIN políticas -> debe responder
+# 7. Configurar pfSense (port forward WAN:443 -> 192.168.1.40:30443)
+#    y probar SIN políticas -> debe responder HTTP 200
 
-# 5. Aplicar las NetworkPolicies (denegación total + 4 permisos, JUNTOS)
+# 8. Aplicar las NetworkPolicies (denegación total + 4 permisos, JUNTOS)
 kubectl apply -f k8s/network-policies/
 ```
 
 > **Tres cosas que rompen el despliegue si no se respetan:**
 > 1. **Calico va al inicio.** Sin `--cni=calico` al crear el clúster, las NetworkPolicies no surten efecto y agregarlo después obliga a recrear el clúster.
-> 2. **El NodePort 30443 debe ser alcanzable en la IP de la VM4** (`192.168.10.40`). Según el driver de Minikube puede quedar interno; usar `--driver=none`, `minikube tunnel` o reenvío en la VM.
+> 2. **El NodePort 30443 debe ser alcanzable en la IP de la VM4** (`192.168.1.40`). Según el driver de Minikube puede quedar interno; usar `--driver=none`, `minikube tunnel` o reenvío en la VM.
 > 3. **Al aplicar `default-deny-all`, el 30443 deja de responder** hasta que esté `allow-ingress-to-web`. Aplicar denegación y permisos en un solo paso.
-
-> **Nota:** los manifiestos `k8s/` (monolito `inventario-web`) provienen de la rama `devops`; este README los referencia para el flujo unificado.
+> 4. **Secrets no están en el repo.** El deployment `inventario-web` referencia 4 secrets vía `envFrom` (`sql-secret`, `ldap-secret`, `mongo-secret`, `jwt-secret`). Crearlos antes de desplegar la app (paso 3b).
 
 ---
 
@@ -323,6 +339,9 @@ kubectl apply -f k8s/network-policies/
 |---------|-------------|
 | [`Proyecto Integrador EGI.md`](./Proyecto%20Integrador%20EGI.md) | Enunciado y requisitos del proyecto |
 | [`docs/Informe_EGI_Inventario.md`](./docs/Informe_EGI_Inventario.md) | Informe técnico completo: arquitectura, modelo de datos, backend, despliegue Docker (§11.7–11.8), seguridad |
+| [`firewall/reglas_pfsense.md`](./firewall/reglas_pfsense.md) | Configuración del firewall perimetral pfSense: diseño de red, port forward, reglas Zero-Trust |
+| [`firewall/INSTRUCCIONES_PFSENSE.md`](./firewall/INSTRUCCIONES_PFSENSE.md) | Guía paso a paso para configurar pfSense desde cero en VirtualBox |
+| [`firewall/CONTEXTO_PARA_CLAUDE.md`](./firewall/CONTEXTO_PARA_CLAUDE.md) | Contexto completo del proyecto para asistir en el levantamiento de k8s + pfSense |
 | [`.env.example`](./.env.example) | Plantilla de variables para `docker compose up` |
 | `docs/` | Diagramas de topología, clases y flujo de la aplicación |
 
