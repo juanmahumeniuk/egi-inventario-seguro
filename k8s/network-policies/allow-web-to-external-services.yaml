@@ -10,17 +10,17 @@ spec:
   policyTypes:
   - Egress
   egress:
-  # SQL Server (VM 3 - host-only 192.168.56.101)
+  # SQL Server (VM 3 - egi-lan 192.168.10.101)
   - to:
     - ipBlock:
-        cidr: 192.168.56.101/32
+        cidr: 192.168.10.101/32
     ports:
     - protocol: TCP
       port: 1433
-  # Active Directory / LDAP (VM 2 - host-only 192.168.56.102)
+  # Active Directory / LDAP (VM 2 - egi-lan 192.168.10.102)
   - to:
     - ipBlock:
-        cidr: 192.168.56.102/32
+        cidr: 192.168.10.102/32
     ports:
     - protocol: TCP
       port: 389
@@ -29,7 +29,7 @@ spec:
   # DNS en VM 2
   - to:
     - ipBlock:
-        cidr: 192.168.56.102/32
+        cidr: 192.168.10.102/32
     ports:
     - protocol: UDP
       port: 53

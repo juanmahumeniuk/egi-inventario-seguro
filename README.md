@@ -291,10 +291,10 @@ docker compose exec -T mongodb mongosh inventario_egi --quiet < migraciones/mong
                       |
                   pfSense (VM1)
                       |
-            Red interna "egi-lan" (192.168.56.0/24)
+            Red interna "egi-lan" (192.168.10.0/24)
          /              |              |              \
     Windows-AD      Windows-SQL    Ubuntu VM4      pfSense WAN
-    (192.168.56.102)  (192.168.56.101) (192.168.56.103)  (VirtualBox NAT)
+    (192.168.10.102)  (192.168.10.101) (192.168.10.103)  (VirtualBox NAT)
     LDAP (389)      SQL (1433)      Minikube
     DNS (53)                        NodePort 30443
 ```
@@ -373,11 +373,11 @@ Cliente WAN → pfSense WAN:443 → [NAT] → Ubuntu:30443 → ingress-nginx →
 
 1. **Interfaces**:
    - **WAN**: Adaptador puente o NAT (salida a internet)
-   - **LAN**: Red interna `egi-lan`, IP `192.168.56.1/24`
+   - **LAN**: Red interna `egi-lan`, IP `192.168.10.1/24`
 
 2. **DHCP + Outbound NAT** (ya configurado):
-   - DHCP en LAN: `192.168.56.100`–`192.168.56.200`
-   - Outbound NAT: enmascara `192.168.56.0/24` por WAN
+   - DHCP en LAN: `192.168.10.100`–`192.168.10.200`
+   - Outbound NAT: enmascara `192.168.10.0/24` por WAN
 
 3. **Bloqueo de redes privadas**: DESHABILITADO en WAN (permite NAT desde redes privadas)
 
@@ -386,7 +386,7 @@ Cliente WAN → pfSense WAN:443 → [NAT] → Ubuntu:30443 → ingress-nginx →
    - Protocolo: **TCP**
    - Destino: **WAN address**
    - Puerto destino: **443**
-   - Redirect IP: **192.168.56.103** (Ubuntu VM4)
+   - Redirect IP: **192.168.10.103** (Ubuntu VM4)
    - Redirect puerto: **30443**
    - Crear regla de firewall asociada: ✓
 
@@ -396,9 +396,9 @@ Cliente WAN → pfSense WAN:443 → [NAT] → Ubuntu:30443 → ingress-nginx →
 
 ### Configuración de VM SQL Server y AD
 
-- **SQL Server** (192.168.56.101:1433): Base de datos `inventario_egi`, usuario `sa`
-- **Windows-AD** (192.168.56.102:389): LDAP, usuarios en `OU=Users,OU=ITU,DC=itu,DC=local`
-- **DNS**: Apunta a Windows-AD (192.168.56.102)
+- **SQL Server** (192.168.10.101:1433): Base de datos `inventario_egi`, usuario `sa`
+- **Windows-AD** (192.168.10.102:389): LDAP, usuarios en `OU=Users,OU=ITU,DC=itu,DC=local`
+- **DNS**: Apunta a Windows-AD (192.168.10.102)
 
 ### Verificación end-to-end
 
@@ -420,7 +420,7 @@ kubectl logs -n inventario-seguro deployment/inventario-web | grep -i ldap
 
 > **Puntos críticos:**
 > 1. **Calico OBLIGATORIO** en `minikube start --cni=calico`. Agregarlo después no funciona.
-> 2. **NodePort 30443 debe ser accesible** en la IP de Ubuntu (192.168.56.103). `kubectl port-forward --address=0.0.0.0` lo expone correctamente.
+> 2. **NodePort 30443 debe ser accesible** en la IP de Ubuntu (192.168.10.103). `kubectl port-forward --address=0.0.0.0` lo expone correctamente.
 > 3. **pfSense desbloquea redes privadas en WAN** (sin esto, NAT no funciona).
 > 4. **Secrets no están en el repo** (seguridad). Crearlos a mano antes de desplegar la app.
 > 5. **CORS** configurado dinámicamente desde `CORS_ALLOWED_ORIGINS` en configmap (ver `SecurityConfig.java`).

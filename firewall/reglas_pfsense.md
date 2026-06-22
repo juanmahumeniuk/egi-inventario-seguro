@@ -21,7 +21,7 @@ del laboratorio (LAN), donde viven el resto de las VMs.
  Internet/Host ───────── WAN  [ pfSense ]  LAN ───────────┬──────────────┬──────────────┐
                                                           │              │              │
                                                     VM2 AD/DNS      VM3 SQL        VM4 K8s
-                                                   192.168.56.102  192.168.56.101  192.168.56.103
+                                                   192.168.10.102  192.168.10.101  192.168.10.103
 ```
 
 ### Esquema de IPs
@@ -29,11 +29,11 @@ del laboratorio (LAN), donde viven el resto de las VMs.
 | Elemento                 | Interfaz / IP            |
 |--------------------------|--------------------------|
 | pfSense WAN              | DHCP (la da VirtualBox)  |
-| pfSense LAN (gateway)    | `192.168.56.1/24`         |
-| VM2 — AD / DNS           | `192.168.56.102`           |
-| VM3 — SQL Server         | `192.168.56.101`           |
-| VM4 — Kubernetes         | `192.168.56.103`           |
-| Rango DHCP de la LAN     | `192.168.56.100–.200`     |
+| pfSense LAN (gateway)    | `192.168.10.1/24`         |
+| VM2 — AD / DNS           | `192.168.10.102`           |
+| VM3 — SQL Server         | `192.168.10.101`           |
+| VM4 — Kubernetes         | `192.168.10.103`           |
+| Rango DHCP de la LAN     | `192.168.10.100–.200`     |
 | Puerto Ingress (NodePort)| `30443`                  |
 
 ---
@@ -63,13 +63,13 @@ Al primer arranque de pfSense por consola:
 2. **Assign interfaces**: normalmente `em0` = WAN, `em1` = LAN (Adaptador 1 y 2). Confirmar.
 3. Opción **2) Set interface(s) IP address**:
    - **WAN** → DHCP.
-   - **LAN** → IP estática `192.168.56.1`, máscara `/24`.
-     Activar el **servidor DHCP** de la LAN con rango `192.168.56.100`–`192.168.56.200`.
-4. VMs internas: DHCP, o IP estática de la tabla con gateway `192.168.56.1` y
-   DNS → `192.168.56.102` (VM2).
+   - **LAN** → IP estática `192.168.10.1`, máscara `/24`.
+     Activar el **servidor DHCP** de la LAN con rango `192.168.10.100`–`192.168.10.200`.
+4. VMs internas: DHCP, o IP estática de la tabla con gateway `192.168.10.1` y
+   DNS → `192.168.10.102` (VM2).
 
 A partir de acá todo se hace desde la **GUI web**: entrar desde una VM de la LAN a
-`https://192.168.56.1` (usuario `admin` / contraseña `pfsense` la primera vez; cambiarla).
+`https://192.168.10.1` (usuario `admin` / contraseña `pfsense` la primera vez; cambiarla).
 
 ---
 
@@ -89,7 +89,7 @@ descarta ese tráfico. **Sin este paso, el port forward no funciona.**
 
 - **Firewall → NAT → pestaña Outbound**.
 - Modo: **Automatic outbound NAT** (por defecto).
-- Verificar la regla automática que enmascara `192.168.56.0/24` saliendo por WAN.
+- Verificar la regla automática que enmascara `192.168.10.0/24` saliendo por WAN.
 
 Con esto las VMs internas salen a internet a través de pfSense.
 
@@ -107,7 +107,7 @@ Materializa la flecha `Firewall → Ingress` del informe.
 | Protocol                | **TCP**                            |
 | Destination             | **WAN address**                    |
 | Destination port range  | **HTTPS (443)**                    |
-| Redirect target IP      | `192.168.56.103` (VM4 Kubernetes)   |
+| Redirect target IP      | `192.168.10.103` (VM4 Kubernetes)   |
 | Redirect target port    | `30443` (NodePort del Ingress)     |
 | Description             | `HTTPS externo -> Ingress K8s`     |
 | Filter rule association | **Add associated filter rule**     |
@@ -116,7 +116,7 @@ Guardar y aplicar. La opción *Add associated filter rule* crea automáticamente
 de firewall en WAN que permite este tráfico.
 
 > **Dependencia con Kubernetes:** el Ingress debe quedar accesible en la IP LAN de la VM4
-> (`192.168.56.103`) en el puerto `30443`. Según el driver de minikube, el NodePort puede
+> (`192.168.10.103`) en el puerto `30443`. Según el driver de minikube, el NodePort puede
 > quedar dentro de minikube y no en la IP de la VM; eso se resuelve al armar el clúster
 > (minikube tunnel / `--driver` adecuado / reenvío dentro de la VM).
 
@@ -154,7 +154,7 @@ de firewall en WAN que permite este tráfico.
 ## Pendientes / decisiones tomadas
 
 - [x] Puerto del Ingress: **NodePort 30443**.
-- [x] Esquema de IPs: red `192.168.56.0/24`.
+- [x] Esquema de IPs: red `192.168.10.0/24`.
 - [x] WAN: `Adaptador puente` (fallback: `NAT` con reenvío en VirtualBox).
 - [x] Instalar las VMs y aplicar esta guía — VMs operativas, pfSense configurado con port forward WAN:443 → VM4:30443.
 - [x] Actualizar el informe: pfSense como opción elegida (informe actualizado, sección 6.5).
