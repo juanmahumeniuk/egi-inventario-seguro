@@ -29,32 +29,50 @@ Consulta el documento completo del enunciado en [`Proyecto Integrador EGI.md`](.
 
 ## Arquitectura
 
+Arquitectura híbrida distribuida en **4 VMs independientes**: pfSense (perímetro), Windows Server (AD/LDAP + DNS), SQL Server (datos relacionales) y Kubernetes/Minikube (aplicación contenerizada).
+
 ```mermaid
 flowchart TB
-    subgraph Perimetro["Perímetro (GUFW / pfSense)"]
-        FW[Firewall / DMZ]
+    U([Usuario Institucional])
+
+    subgraph VM1["VM 1: Firewall (pfSense)"]
+        FW["Firewall Perimetral<br/>(Simulación DMZ)"]
     end
 
-    subgraph K8s["Namespace · Minikube"]
-        WEB["inventario-web<br/><i>Frontend</i>"]
-        SQL["ubicacion-db<br/><i>SQL Server / MySQL</i>"]
-        MONGO["inventario-db<br/><i>MongoDB</i>"]
-        LDAP["ldap-service<br/><i>Active Directory / LDAP</i>"]
+    subgraph VM2["VM 2: Windows Server"]
+        AD["Active Directory / LDAP<br/>(Puertos :389 / :636)"]
+        DNS["DNS Server<br/>(Resolución interna)"]
     end
 
-    USER((Usuario)) --> FW
-    FW -->|HTTP| WEB
-    WEB --> SQL
-    WEB --> MONGO
-    WEB --> LDAP
+    subgraph VM3["VM 3: SQL Server"]
+        SQL["SQL Server<br/>(Puerto :1433)"]
+    end
+
+    subgraph VM4["VM 4: Kubernetes (Minikube + Calico)"]
+        IC["Ingress Controller<br/>(inventario.itu.local)"]
+        FE["inventario-web<br/>(Spring Boot + React)"]
+        MONGO["inventario-db<br/>(MongoDB :27017)"]
+        PV2["PVC mongodb-data"]
+    end
+
+    U -->|HTTPS| FW
+    FW -->|HTTPS| IC
+    IC --> FE
+    FE -->|LDAP/LDAPS| AD
+    FE -->|DNS query| DNS
+    FE -->|JDBC :1433| SQL
+    FE -->|Mongo Wire :27017| MONGO
+    MONGO -.->|persistencia| PV2
 ```
 
-| Servicio | Rol | Puerto |
-|----------|-----|--------|
-| `inventario-web` | Interfaz y lógica de aplicación (Spring Boot + React) | 8080 |
-| `ubicacion-db` | Ubicación, responsables, mantenimiento (SQL Server, VM externa) | 1433 |
-| `inventario-db` | Hardware y componentes internos (MongoDB) | 27017 |
-| `ldap-service` | Autenticación institucional (Active Directory, VM externa) | 389 / 636 |
+| Componente | VM / Ubicación | Rol | Puerto |
+|----------|----------------|-----|--------|
+| pfSense | VM 1 | Firewall perimetral y gateway (DMZ) | 443 → 30443 |
+| Active Directory / DNS | VM 2 | Autenticación institucional y resolución de nombres | 389 / 636, 53 |
+| SQL Server (`ubicacion-db`) | VM 3 | Ubicación, responsables y asignaciones | 1433 |
+| Ingress NGINX | VM 4 (K8s) | Punto de entrada al clúster (`inventario.itu.local`) | 30443 |
+| `inventario-web` | VM 4 (K8s) | Aplicación monolítica Spring Boot + React | 8080 |
+| `inventario-db` (MongoDB) | VM 4 (K8s) | Hardware y componentes internos | 27017 |
 
 ---
 
@@ -64,10 +82,10 @@ flowchart TB
 |------|-------------|
 | **Backend** | Spring Boot, Java |
 | **Frontend** | React 19, TypeScript, Vite 6, Tailwind CSS 4 |
-| **Datos** | SQL Server / MySQL, MongoDB |
-| **Identidad** | Active Directory / LDAP |
-| **Infraestructura** | Docker, Kubernetes (Minikube), Calico |
-| **Seguridad** | Network Policies, GUFW / pfSense |
+| **Datos** | SQL Server (VM externa), MongoDB (contenerizado en K8s) |
+| **Identidad** | Active Directory / LDAP (VM externa) |
+| **Infraestructura** | Docker, Kubernetes (Minikube), Calico CNI, Ingress NGINX |
+| **Seguridad** | Network Policies (Calico), pfSense (firewall perimetral) |
 
 ---
 

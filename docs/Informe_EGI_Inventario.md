@@ -46,44 +46,37 @@ Dentro del clúster Kubernetes (VM 4), en un namespace aislado denominado `inven
 ### 3.2 Diagrama de Topología del Sistema
 
 ```mermaid
-graph TD
+flowchart TB
     U([Usuario Institucional])
 
     subgraph VM1["VM 1: Firewall (pfSense)"]
-        FW["Firewall Perimetral\n(Simulación DMZ)"]
+        FW["Firewall Perimetral<br/>(Simulación DMZ)"]
     end
 
     subgraph VM2["VM 2: Windows Server"]
-        AD["Active Directory / LDAP\n(Puertos :389 / :636)"]
-        DNS["DNS Server\n(Resolución interna)"]
+        AD["Active Directory / LDAP<br/>(Puertos :389 / :636)"]
+        DNS["DNS Server<br/>(Resolución interna)"]
     end
 
     subgraph VM3["VM 3: SQL Server"]
-        SQL["SQL Server\n(Puerto :1433)"]
+        SQL["SQL Server<br/>(Puerto :1433)"]
     end
 
     subgraph VM4["VM 4: Kubernetes (Minikube + Calico)"]
-        IC["Ingress Controller\n(inventario.itu.local)"]
-        
-        subgraph NS["Namespace: inventario-seguro"]
-            FE["inventario-web\n(Spring Boot + React)"]
-            MONGO["inventario-db\n(MongoDB :27017)"]
-        end
-
-        subgraph PV["Persistencia"]
-            PV2[PVC mongodb-data]
-        end
+        IC["Ingress Controller<br/>(inventario.itu.local)"]
+        FE["inventario-web<br/>(Spring Boot + React)"]
+        MONGO["inventario-db<br/>(MongoDB :27017)"]
+        PV2["PVC mongodb-data"]
     end
 
-    U -- "HTTPS" --> FW
-    FW -- "HTTPS" --> IC
+    U -->|HTTPS| FW
+    FW -->|HTTPS| IC
     IC --> FE
-
-    FE -- "LDAP/LDAPS" --> AD
-    FE -- "DNS query" --> DNS
-    FE -- "JDBC :1433" --> SQL
-    FE -- "Mongo Wire :27017" --> MONGO
-    MONGO -.-> PV2
+    FE -->|LDAP/LDAPS| AD
+    FE -->|DNS query| DNS
+    FE -->|JDBC :1433| SQL
+    FE -->|Mongo Wire :27017| MONGO
+    MONGO -.->|persistencia| PV2
 ```
 
 ---

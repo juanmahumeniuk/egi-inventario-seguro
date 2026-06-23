@@ -1,54 +1,43 @@
 flowchart TB
- subgraph PERIMETRO["Perímetro · Zero-Trust"]
-        FW["Firewall / DMZ<br>GUFW · pfSense"]
-  end
- subgraph DATA["Capa de datos"]
-    direction LR
-        SQL[("ubicacion-db<br><i>SQL Server</i><br>persona ·
-  maquina · persona_maquina<br>(VM)")]
-        MONGO[("inventario-db<br><i>MongoDB</i><br>colección
-  maquina (hardware)")]
-  end
- subgraph NS["Namespace · inventario-seguro"]
-    direction TB
-        WEB["inventario-web<br><i>Spring Boot · Frontend+API</i>"]
-        DATA
-        LDAP["ldap-service<br><i>Active Directory /
-  LDAP</i><br>(VM)"]
-  end
- subgraph PV["Persistencia (PersistentVolumes)"]
-    direction LR
-        SQLPV[["PVC sqlserver-data"]]
-        MONGOPV[["PVC mongodb-data"]]
-        LDAPPV[["PVC ldap-data"]]
-  end
- subgraph CLUSTER["Clúster Kubernetes · Minikube (CNI Calico)"]
-    direction TB
-        ING["Ingress Controller"]
-        NS
-        PV
-  end
-    USER(("Usuario<br>institucional")) -- HTTPS --> FW
-    FW -- HTTP --> ING
-    ING --> WEB
-    WEB -- JDBC :1433 --> SQL
-    WEB -- Mongo Wire :27017 --> MONGO
-    WEB -- LDAP/LDAPS :389/636 --> LDAP
-    SQL -.-> SQLPV
-    MONGO -.-> MONGOPV
-    LDAP -.-> LDAPPV
+    U([Usuario Institucional])
 
-     FW:::edge
-     SQL:::db
-     MONGO:::db
-     WEB:::app
-     LDAP:::sec
-     SQLPV:::vol
-     MONGOPV:::vol
-     LDAPPV:::vol
-     ING:::app
+    subgraph VM1["VM 1: Firewall (pfSense)"]
+        FW["Firewall Perimetral<br/>(Simulación DMZ)"]
+    end
+
+    subgraph VM2["VM 2: Windows Server"]
+        AD["Active Directory / LDAP<br/>(Puertos :389 / :636)"]
+        DNS["DNS Server<br/>(Resolución interna)"]
+    end
+
+    subgraph VM3["VM 3: SQL Server"]
+        SQL["SQL Server<br/>(Puerto :1433)"]
+    end
+
+    subgraph VM4["VM 4: Kubernetes (Minikube + Calico)"]
+        IC["Ingress Controller<br/>(inventario.itu.local)"]
+        FE["inventario-web<br/>(Spring Boot + React)"]
+        MONGO["inventario-db<br/>(MongoDB :27017)"]
+        PV2["PVC mongodb-data"]
+    end
+
+    U -->|HTTPS| FW
+    FW -->|HTTPS| IC
+    IC --> FE
+    FE -->|LDAP/LDAPS| AD
+    FE -->|DNS query| DNS
+    FE -->|JDBC :1433| SQL
+    FE -->|Mongo Wire :27017| MONGO
+    MONGO -.->|persistencia| PV2
+
     classDef edge fill:#1f2937,stroke:#374151,color:#fff
     classDef app fill:#0f766e,stroke:#0d9488,color:#fff
     classDef db fill:#7c2d12,stroke:#9a3412,color:#fff
     classDef sec fill:#1e3a8a,stroke:#1d4ed8,color:#fff
     classDef vol fill:#374151,stroke:#4b5563,color:#fff
+
+    class FW edge
+    class IC,FE app
+    class SQL,MONGO db
+    class AD,DNS sec
+    class PV2 vol
